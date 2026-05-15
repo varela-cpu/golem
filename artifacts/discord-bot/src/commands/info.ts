@@ -42,14 +42,8 @@ export const info: Command = {
       (r) => r.name === `${nombreClan}-lider`
     );
 
-    await guild.members.fetch();
-
-    const miembros = guild.members.cache.filter((m) =>
-      m.roles.cache.has(rolClan.id)
-    );
-    const lideres = rolLider
-      ? guild.members.cache.filter((m) => m.roles.cache.has(rolLider.id))
-      : null;
+    const miembros = rolClan.members;
+    const lideres = rolLider ? rolLider.members : null;
 
     const categoria = guild.channels.cache.find(
       (c) => c.type === 4 && c.name === nombreClan

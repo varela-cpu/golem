@@ -3,7 +3,6 @@ import {
   GuildMember,
   PermissionFlagsBits,
   SlashCommandBuilder,
-  TextChannel,
 } from "discord.js";
 import { logger } from "../lib/logger.js";
 import { Command } from "../lib/types.js";
