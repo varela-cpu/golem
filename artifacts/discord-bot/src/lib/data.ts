@@ -6,8 +6,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = path.join(__dirname, "../../data/clanes.json");
 
 export interface ClanData {
-  lider: string;
-  miembros: string[];
+  lider_id: string;
+  miembros_ids: string[];
+  rol_id: string;
+  rol_lider_id: string;
+  cat_id: string;
 }
 
 export interface ClanesStore {
@@ -25,24 +28,32 @@ export function cargarClanes(): ClanesStore {
   return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as ClanesStore;
 }
 
-export function guardarClan(nombre: string, liderId: string, miembrosIds: string[]): void {
+export function guardarClan(
+  nombre: string,
+  liderId: string,
+  miembrosIds: string[],
+  rolId: string,
+  rolLiderId: string,
+  catId: string
+): void {
   const data = cargarClanes();
-  data[nombre] = { lider: liderId, miembros: miembrosIds };
+  data[nombre] = { lider_id: liderId, miembros_ids: miembrosIds, rol_id: rolId, rol_lider_id: rolLiderId, cat_id: catId };
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
 }
 
-export function eliminarClanData(nombre: string): boolean {
+export function eliminarClanData(nombre: string): ClanData | null {
   const data = cargarClanes();
-  if (!data[nombre]) return false;
+  if (!data[nombre]) return null;
+  const clan = data[nombre];
   delete data[nombre];
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
-  return true;
+  return clan;
 }
 
 export function usuarioEnClan(userId: string): string | null {
   const data = cargarClanes();
   for (const [nombre, info] of Object.entries(data)) {
-    if (userId === info.lider || info.miembros.includes(userId)) return nombre;
+    if (userId === info.lider_id || info.miembros_ids.includes(userId)) return nombre;
   }
   return null;
 }

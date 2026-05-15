@@ -20,10 +20,9 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
   }
 
   const colorInt = parseInt(rawColor, 16);
-  if (isNaN(colorInt) || rawColor.length !== 6) {
-    await interaction.reply({ content: "❌ Color inválido. Usa formato hex como `#FF0000` o `FF0000`.", ephemeral: true });
-    return;
-  }
+  const validColor = !isNaN(colorInt) && rawColor.length === 6;
+  const finalColorInt = validColor ? colorInt : 0x3498db;
+  const finalColorHex = validColor ? rawColor : "3498DB";
 
   const clanActual = usuarioEnClan(interaction.user.id);
   if (clanActual) {
@@ -33,8 +32,8 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
 
   setPending(interaction.user.id, {
     nombre,
-    colorInt,
-    colorHex: rawColor,
+    colorInt: finalColorInt,
+    colorHex: finalColorHex,
     lider: null,
     miembros: [],
   });
@@ -42,7 +41,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
   const liderRow = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
     new UserSelectMenuBuilder()
       .setCustomId("select_lider")
-      .setPlaceholder("👑 Selecciona al LÍDER del clan")
+      .setPlaceholder("👑 Selecciona al Líder")
       .setMinValues(1)
       .setMaxValues(1)
   );
@@ -50,7 +49,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
   const miembrosRow = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
     new UserSelectMenuBuilder()
       .setCustomId("select_miembros")
-      .setPlaceholder("👥 Selecciona los MIEMBROS (hasta 10)")
+      .setPlaceholder("👥 Selecciona Miembros (Mínimo 1)")
       .setMinValues(1)
       .setMaxValues(10)
   );
@@ -58,12 +57,12 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
   const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("confirmar_clan")
-      .setLabel("✅ CREAR CLAN AHORA")
+      .setLabel("Finalizar Creación")
       .setStyle(ButtonStyle.Success)
   );
 
   await interaction.reply({
-    content: `Nombre y color aceptados para el clan **${nombre}** 🎨 \`#${rawColor.toUpperCase()}\`\n\nAhora selecciona el **líder** y los **miembros**, luego pulsa el botón.`,
+    content: `Selecciona al Líder y a los miembros para **${nombre}**`,
     components: [liderRow, miembrosRow, buttonRow],
     ephemeral: true,
   });

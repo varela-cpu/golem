@@ -1,16 +1,18 @@
 import {
   ActionRowBuilder,
   ButtonInteraction,
+  EmbedBuilder,
   ModalBuilder,
+  TextChannel,
   TextInputBuilder,
   TextInputStyle,
   UserSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
 } from "discord.js";
+import { guardarClan } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
-import { getPending } from "../lib/pending.js";
-import { clanExiste, guardarClan, usuarioEnClan } from "../lib/data.js";
+import { clearPending, getPending } from "../lib/pending.js";
 
 export async function handleButton(interaction: ButtonInteraction): Promise<void> {
   const { customId, user, guild } = interaction;
@@ -18,27 +20,28 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
   if (customId === "btn_crear_clan") {
     const modal = new ModalBuilder()
       .setCustomId("modal_clan_form")
-      .setTitle("Registro de Nuevo Clan")
+      .setTitle("Registro de Clan")
       .addComponents(
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId("nombre_clan")
             .setLabel("Nombre del Clan")
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder("Ej: Los Patata Caliente")
+            .setPlaceholder("Ej: Los Constructores")
             .setMinLength(3)
-            .setMaxLength(20)
+            .setMaxLength(25)
             .setRequired(true)
         ),
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId("color_hex")
-            .setLabel("Color Hexadecimal")
+            .setLabel("Color (HEX o dejar azul)")
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder("Ej: #FF0000")
-            .setMinLength(6)
+            .setPlaceholder("Ej: #FF5733 o dejar azul")
+            .setValue("#3498DB")
+            .setMinLength(4)
             .setMaxLength(7)
-            .setRequired(true)
+            .setRequired(false)
         )
       );
     await interaction.showModal(modal);
@@ -53,6 +56,10 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
     }
     if (!pending.lider) {
       await interaction.reply({ content: "❌ Debes seleccionar un líder primero.", ephemeral: true });
+      return;
+    }
+    if (pending.miembros.length < 1) {
+      await interaction.reply({ content: "❌ Necesitas seleccionar al menos 1 miembro.", ephemeral: true });
       return;
     }
     if (!guild) {
@@ -79,12 +86,10 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
       const liderMember = await guild.members.fetch(pending.lider.id);
       await liderMember.roles.add([rolClan, rolLider]);
 
-      const miembrosAgregados = [];
       for (const u of pending.miembros) {
         try {
           const m = await guild.members.fetch(u.id);
           await m.roles.add(rolClan);
-          miembrosAgregados.push(m);
         } catch {
           logger.warn({ userId: u.id }, "No se pudo asignar rol a miembro");
         }
@@ -94,6 +99,7 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
         { id: guild.roles.everyone.id, deny: ["ViewChannel" as const] },
         { id: rolClan.id, allow: ["ViewChannel" as const] },
       ];
+
       const categoria = await guild.channels.create({
         name: pending.nombre,
         type: 4,
@@ -101,27 +107,46 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
         reason: `Categoría del clan: ${pending.nombre}`,
       });
 
-      const overwritesAvisos = [
-        { id: guild.roles.everyone.id, deny: ["ViewChannel" as const] },
-        { id: rolClan.id, allow: ["ViewChannel" as const], deny: ["SendMessages" as const] },
-        { id: rolLider.id, allow: ["ViewChannel" as const, "SendMessages" as const] },
-      ];
-      await guild.channels.create({ name: "📢-avisos", type: 0, parent: categoria.id, permissionOverwrites: overwritesAvisos });
-      await guild.channels.create({ name: "💬-chat-general", type: 0, parent: categoria.id, permissionOverwrites: overwrites });
-      await guild.channels.create({ name: "🔊-voz-clan", type: 2, parent: categoria.id, permissionOverwrites: overwrites });
+      const chAvisos = await guild.channels.create({
+        name: "avisos-clan",
+        type: 0,
+        parent: categoria.id,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: ["ViewChannel" as const] },
+          { id: rolClan.id, allow: ["ViewChannel" as const], deny: ["SendMessages" as const] },
+          { id: rolLider.id, allow: ["ViewChannel" as const, "SendMessages" as const] },
+        ],
+      });
 
-      guardarClan(pending.nombre, pending.lider.id, pending.miembros.map((m) => m.id));
+      await guild.channels.create({ name: "chat-general", type: 0, parent: categoria.id, permissionOverwrites: overwrites });
+      await guild.channels.create({ name: "Voz Clan", type: 2, parent: categoria.id, permissionOverwrites: overwrites });
+
+      guardarClan(
+        pending.nombre,
+        pending.lider.id,
+        pending.miembros.map((m) => m.id),
+        rolClan.id,
+        rolLider.id,
+        categoria.id
+      );
+
+      clearPending(user.id);
 
       logger.info({ clan: pending.nombre, lider: pending.lider.id }, "Clan creado via formulario");
 
-      await interaction.editReply({
-        content:
-          `✅ **¡Clan ${pending.nombre} creado con éxito!**\n\n` +
-          `👑 **Líder:** ${liderMember}\n` +
-          `👥 **Miembros:** ${miembrosAgregados.length}\n` +
-          `🎨 **Color:** #${pending.colorHex.toUpperCase()}`,
-        components: [],
-      });
+      const embed = new EmbedBuilder()
+        .setTitle("NUEVO CLAN CREADO")
+        .setColor(pending.colorInt)
+        .addFields(
+          { name: "Clan", value: pending.nombre, inline: true },
+          { name: "Líder", value: `<@${pending.lider.id}>`, inline: true },
+          { name: "Miembros", value: `${pending.miembros.length + 1} totales`, inline: true }
+        );
+
+      const channel = interaction.channel as TextChannel | null;
+      await channel?.send({ embeds: [embed] });
+
+      await interaction.editReply({ content: "¡Todo creado correctamente!", components: [] });
     } catch (err) {
       logger.error({ err }, "Error al crear clan via formulario");
       await interaction.editReply({
