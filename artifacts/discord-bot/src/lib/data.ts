@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = path.join(__dirname, "../../data/clanes.json");
+const DATA_FILE = path.join(__dirname, "../../data/clanes_v2.json");
 
 export interface ClanData {
   lider_id: string;
@@ -13,19 +13,44 @@ export interface ClanData {
   cat_id: string;
 }
 
+export interface SolicitudData {
+  nombre: string;
+  colorInt: number;
+  colorHex: string;
+  lider_id: string;
+  miembros_ids: string[];
+  guild_id: string;
+}
+
 export interface ClanesStore {
   [nombre: string]: ClanData;
+}
+
+interface DB {
+  clanes: ClanesStore;
+  admin_channel: string | null;
+  solicitudes: { [id: string]: SolicitudData };
 }
 
 function ensureFile(): void {
   const dir = path.dirname(DATA_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, "{}", "utf-8");
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ clanes: {}, admin_channel: null, solicitudes: {} }, null, 2), "utf-8");
+  }
+}
+
+function loadDB(): DB {
+  ensureFile();
+  return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as DB;
+}
+
+function saveDB(db: DB): void {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), "utf-8");
 }
 
 export function cargarClanes(): ClanesStore {
-  ensureFile();
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as ClanesStore;
+  return loadDB().clanes;
 }
 
 export function guardarClan(
@@ -36,28 +61,70 @@ export function guardarClan(
   rolLiderId: string,
   catId: string
 ): void {
-  const data = cargarClanes();
-  data[nombre] = { lider_id: liderId, miembros_ids: miembrosIds, rol_id: rolId, rol_lider_id: rolLiderId, cat_id: catId };
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  const db = loadDB();
+  db.clanes[nombre] = { lider_id: liderId, miembros_ids: miembrosIds, rol_id: rolId, rol_lider_id: rolLiderId, cat_id: catId };
+  saveDB(db);
+}
+
+export function agregarMiembroAClan(nombre: string, userId: string): void {
+  const db = loadDB();
+  if (db.clanes[nombre] && !db.clanes[nombre].miembros_ids.includes(userId)) {
+    db.clanes[nombre].miembros_ids.push(userId);
+    saveDB(db);
+  }
+}
+
+export function eliminarMiembroDeClan(nombre: string, userId: string): void {
+  const db = loadDB();
+  if (db.clanes[nombre]) {
+    db.clanes[nombre].miembros_ids = db.clanes[nombre].miembros_ids.filter((id) => id !== userId);
+    saveDB(db);
+  }
 }
 
 export function eliminarClanData(nombre: string): ClanData | null {
-  const data = cargarClanes();
-  if (!data[nombre]) return null;
-  const clan = data[nombre];
-  delete data[nombre];
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  const db = loadDB();
+  if (!db.clanes[nombre]) return null;
+  const clan = db.clanes[nombre];
+  delete db.clanes[nombre];
+  saveDB(db);
   return clan;
 }
 
 export function usuarioEnClan(userId: string): string | null {
-  const data = cargarClanes();
-  for (const [nombre, info] of Object.entries(data)) {
+  const db = loadDB();
+  for (const [nombre, info] of Object.entries(db.clanes)) {
     if (userId === info.lider_id || info.miembros_ids.includes(userId)) return nombre;
   }
   return null;
 }
 
 export function clanExiste(nombre: string): boolean {
-  return nombre in cargarClanes();
+  return nombre in loadDB().clanes;
+}
+
+export function getAdminChannel(): string | null {
+  return loadDB().admin_channel;
+}
+
+export function setAdminChannel(channelId: string): void {
+  const db = loadDB();
+  db.admin_channel = channelId;
+  saveDB(db);
+}
+
+export function guardarSolicitud(id: string, data: SolicitudData): void {
+  const db = loadDB();
+  db.solicitudes[id] = data;
+  saveDB(db);
+}
+
+export function getSolicitud(id: string): SolicitudData | null {
+  return loadDB().solicitudes[id] ?? null;
+}
+
+export function eliminarSolicitud(id: string): void {
+  const db = loadDB();
+  delete db.solicitudes[id];
+  saveDB(db);
 }

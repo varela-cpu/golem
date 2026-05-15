@@ -13,28 +13,27 @@ import { Command } from "../lib/types.js";
 export const setup: Command = {
   data: new SlashCommandBuilder()
     .setName("setup")
-    .setDescription("Publica el panel de registro de clanes en este canal")
+    .setDescription("Publica el panel del sistema de clanes en este canal")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction: ChatInputCommandInteraction) {
     const embed = new EmbedBuilder()
-      .setTitle("🏰 SISTEMA DE CLANES")
+      .setTitle("⚔️ SISTEMA DE CLANES ⚔️")
       .setDescription(
-        "Pulsa el botón de abajo para registrar tu clan.\n\n" +
-          "**Requisitos:**\n" +
-          "• No pertenecer ya a otro clan\n" +
-          "• Tener un código de color en formato Hex (ej: `#FF0000`)\n" +
-          "• Tener al menos 1 miembro para unirse"
+        "¡Crea tu propia facción!\n\n" +
+          "**REGLAS:**\n" +
+          "1. No puedes estar en dos clanes.\n" +
+          "2. Mínimo 2 miembros.\n" +
+          "3. El Staff debe aprobar tu solicitud."
       )
-      .setColor(0x5865f2)
-      .setFooter({ text: "Solo administradores pueden crear clanes" });
+      .setColor(0x992d22);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId("btn_crear_clan")
-        .setLabel("Crear un Clan")
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji("🏰")
+        .setCustomId("btn_pedir_clan")
+        .setLabel("Pedir Creación de Clan")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("⚔️")
     );
 
     await interaction.reply({ content: "✅ Panel publicado.", ephemeral: true });

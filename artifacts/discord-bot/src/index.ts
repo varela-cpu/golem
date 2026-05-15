@@ -34,7 +34,7 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     }
 
     if (interaction.isButton()) {
-      await handleButton(interaction);
+      await handleButton(interaction, client);
       return;
     }
 
@@ -52,11 +52,16 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
     const reply = { content: "❌ Ocurrió un error inesperado.", ephemeral: true };
     try {
       if ("replied" in interaction && "deferred" in interaction) {
-        const i = interaction as { replied: boolean; deferred: boolean; followUp: (r: typeof reply) => Promise<unknown>; reply: (r: typeof reply) => Promise<unknown> };
+        const i = interaction as {
+          replied: boolean;
+          deferred: boolean;
+          followUp: (r: typeof reply) => Promise<unknown>;
+          reply: (r: typeof reply) => Promise<unknown>;
+        };
         if (i.replied || i.deferred) await i.followUp(reply);
         else await i.reply(reply);
       }
-    } catch { /* ignore secondary error */ }
+    } catch { /* ignore */ }
   }
 });
 

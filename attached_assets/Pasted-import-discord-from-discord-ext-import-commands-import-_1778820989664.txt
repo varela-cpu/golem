@@ -1,0 +1,207 @@
+import discord
+from discord.ext import commands
+import json
+import os
+
+# --- CONFIGURACIÓN ---
+TOKEN = 'TU_TOKEN_NUEVO_AQUI'
+DB_FILE = 'clanes_v2.json'
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- BASE DE DATOS ---
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, 'r') as f: return json.load(f)
+    return {"clanes": {}, "admin_channel": None, "solicitudes": {}}
+
+def save_db(data):
+    with open(DB_FILE, 'w') as f: json.dump(data, f, indent=4)
+
+def get_user_clan(user_id):
+    db = load_db()
+    for name, info in db["clanes"].items():
+        if user_id == info['lider_id'] or user_id in info['miembros_ids']:
+            return name
+    return None
+
+# --- VISTAS Y MODALES ---
+
+# 1. Invitación al Miembro (Por DM)
+class MemberInviteView(discord.ui.View):
+    def __init__(self, clan_name, role_id):
+        super().__init__(timeout=86400) # Dura 24h
+        self.clan_name = clan_name
+        self.role_id = role_id
+
+    @discord.ui.button(label="Aceptar Invitación", style=discord.ButtonStyle.green)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        clan_name = self.clan_name
+        if get_user_clan(interaction.user.id):
+            return await interaction.response.send_message("Ya perteneces a un clan.", ephemeral=True)
+        
+        db = load_db()
+        if clan_name not in db["clanes"]:
+            return await interaction.response.send_message("El clan ya no existe.", ephemeral=True)
+        
+        guild = bot.get_guild(interaction.guild_id) # Esto requiere que el DM sepa el guild
+        # Nota: En DMs es mejor buscar el guild manualmente
+        for g in bot.guilds:
+            role = g.get_role(self.role_id)
+            if role:
+                member = g.get_member(interaction.user.id)
+                if member:
+                    await member.add_roles(role)
+                    db["clanes"][clan_name]["miembros_ids"].append(interaction.user.id)
+                    save_db(db)
+                    self.stop()
+                    return await interaction.response.send_message(f"¡Te has unido a {clan_name}!")
+        
+        await interaction.response.send_message("Error al unirte.")
+
+# 2. Vista para Admins (Aprobar/Denegar)
+class AdminApprovalView(discord.ui.View):
+    def __init__(self, clan_data):
+        super().__init__(timeout=None)
+        self.clan_data = clan_data
+
+    @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        d = self.clan_data
+        
+        # Crear todo el sistema de canales y roles
+        color = discord.Color(int(d['color'].replace("#",""), 16))
+        r_clan = await guild.create_role(name=d['nombre'], color=color)
+        r_lider = await guild.create_role(name=f"{d['nombre']}-Lider", color=color)
+        
+        lider = guild.get_member(d['lider_id'])
+        if lider: await lider.add_roles(r_clan, r_lider)
+        
+        overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False), r_clan: discord.PermissionOverwrite(view_channel=True)}
+        cat = await guild.create_category(d['nombre'], overwrites=overwrites)
+        await guild.create_text_channel('📢-avisos', category=cat)
+        await guild.create_text_channel('💬-chat-general', category=cat)
+        
+        db = load_db()
+        db["clanes"][d['nombre']] = {
+            "lider_id": d['lider_id'], "miembros_ids": [], 
+            "rol_id": r_clan.id, "rol_lider_id": r_lider.id, "cat_id": cat.id
+        }
+        save_db(db)
+        
+        # Enviar invitaciones a los miembros
+        for m_id in d['miembros_ids']:
+            member = guild.get_member(m_id)
+            if member:
+                try:
+                    view = MemberInviteView(d['nombre'], r_clan.id)
+                    await member.send(f"Has sido invitado al clan **{d['nombre']}**. ¿Aceptas?", view=view)
+                except: pass
+
+        await interaction.response.send_message(f"Clan {d['nombre']} creado y miembros notificados.")
+        await interaction.message.delete()
+
+# 3. Formulario Inicial
+class ClanModal(discord.ui.Modal, title='Solicitud de Creación de Clan'):
+    nombre = discord.ui.TextInput(label='Nombre del Clan')
+    color = discord.ui.TextInput(label='Color HEX', default="#FFFFFF")
+    
+    def __init__(self, members_view):
+        super().__init__()
+        self.mv = members_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        db = load_db()
+        if not db["admin_channel"]:
+            return await interaction.response.send_message("El staff no ha configurado el canal de solicitudes.", ephemeral=True)
+        
+        data = {
+            "nombre": self.nombre.value,
+            "color": self.color.value,
+            "lider_id": self.mv.lider.id,
+            "miembros_ids": [m.id for m in self.mv.miembros]
+        }
+        
+        channel = bot.get_channel(db["admin_channel"])
+        embed = discord.Embed(title="Nueva Solicitud de Clan", color=discord.Color.blue())
+        embed.add_field(name="Nombre", value=data["nombre"])
+        embed.add_field(name="Lider", value=f"<@{data['lider_id']}>")
+        embed.add_field(name="Miembros", value=f"{len(data['miembros_ids'])} personas")
+        
+        await channel.send(embed=embed, view=AdminApprovalView(data))
+        await interaction.response.send_message("Tu solicitud ha sido enviada al Staff.", ephemeral=True)
+
+class MemberSelect(discord.ui.View):
+    def __init__(self):
+        super().__init__()
+        self.lider = None
+        self.miembros = []
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecciona al Líder")
+    async def sel_lider(self, interaction: discord.Interaction, select):
+        self.lider = select.values[0]
+        await interaction.response.defer()
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecciona Miembros", min_values=1, max_values=10)
+    async def sel_mems(self, interaction: discord.Interaction, select):
+        self.miembros = select.values
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Siguiente", style=discord.ButtonStyle.gray)
+    async def next(self, interaction: discord.Interaction, button):
+        if not self.lider or not self.miembros: return
+        await interaction.response.send_modal(ClanModal(self))
+
+# --- COMANDOS ---
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def canal_staff(ctx):
+    db = load_db()
+    db["admin_channel"] = ctx.channel.id
+    save_db(db)
+    await ctx.send(f"Canal de solicitudes configurado en {ctx.channel.mention}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup(ctx):
+    embed = discord.Embed(title="⚔️ SISTEMA DE CLANES ⚔️", description="¡Crea tu propia facción!\n\n**REGLAS:**\n1. No puedes estar en dos clanes.\n2. Mínimo 2 miembros.\n3. El Staff debe aprobar tu solicitud.", color=discord.Color.dark_red())
+    view = discord.ui.View()
+    btn = discord.ui.Button(label="Pedir Creación de Clan", style=discord.ButtonStyle.danger)
+    btn.callback = lambda i: i.response.send_message("Elige a los integrantes:", view=MemberSelect(), ephemeral=True)
+    view.add_item(btn)
+    await ctx.send(embed=embed, view=view)
+
+# --- COMANDOS DE LÍDER ---
+
+@bot.command()
+async def invitar(ctx, miembro: discord.Member):
+    clan_name = get_user_clan(ctx.author.id)
+    db = load_db()
+    if not clan_name or db["clanes"][clan_name]["lider_id"] != ctx.author.id:
+        return await ctx.send("Solo el líder puede invitar.")
+    
+    if get_user_clan(miembro.id):
+        return await ctx.send("Ese usuario ya está en un clan.")
+    
+    view = MemberInviteView(clan_name, db["clanes"][clan_name]["rol_id"])
+    await miembro.send(f"Has sido invitado a **{clan_name}**. ¿Aceptas?", view=view)
+    await ctx.send(f"Invitación enviada a {miembro.display_name}")
+
+@bot.command()
+async def expulsar(ctx, miembro: discord.Member):
+    clan_name = get_user_clan(ctx.author.id)
+    db = load_db()
+    if not clan_name or db["clanes"][clan_name]["lider_id"] != ctx.author.id:
+        return await ctx.send("No tienes permiso.")
+    
+    if miembro.id in db["clanes"][clan_name]["miembros_ids"]:
+        db["clanes"][clan_name]["miembros_ids"].remove(miembro.id)
+        role = ctx.guild.get_role(db["clanes"][clan_name]["rol_id"])
+        await miembro.remove_roles(role)
+        save_db(db)
+        await ctx.send(f"{miembro.display_name} ha sido expulsado.")
+
+bot.run(TOKEN)
