@@ -3,6 +3,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
+import { eliminarClanData } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
 import { Command } from "../lib/types.js";
 
@@ -65,6 +66,7 @@ export const eliminar: Command = {
         return;
       }
 
+      eliminarClanData(nombreClan);
       logger.info({ guild: guild.id, clan: nombreClan, deleted }, "Clan eliminado");
 
       await interaction.editReply(

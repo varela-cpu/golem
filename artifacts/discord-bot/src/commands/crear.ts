@@ -4,6 +4,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
+import { guardarClan } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
 import { Command } from "../lib/types.js";
 
@@ -169,6 +170,7 @@ export const crear: Command = {
         reason: `Canal de voz del clan: ${nombreClan}`,
       });
 
+      guardarClan(nombreClan, liderUser.id, miembrosAgregados.map((m) => m.id));
       logger.info(
         {
           guild: guild.id,

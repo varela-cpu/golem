@@ -1,0 +1,135 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+import json
+import os
+
+# --- CONFIGURACIÓN ---
+TOKEN = MTUwNDY1MjA0NzE1OTY2MDcwNw.GsQEC9.BDg-RLbo9jdWA-ZucigdofiU6n5Iryi1exas4M
+FILE_CLANES = 'clanes.json'
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Cargar/Guardar datos de clanes para validaciones
+def cargar_clanes():
+    if os.path.exists(FILE_CLANES):
+        with open(FILE_CLANES, 'r') as f: return json.load(f)
+    return {}
+
+def guardar_clan(nombre, lider_id, miembros_ids):
+    data = cargar_clanes()
+    data[nombre] = {"lider": lider_id, "miembros": miembros_ids}
+    with open(FILE_CLANES, 'w') as f: json.dump(data, f, indent=4)
+
+def usuario_en_clan(user_id):
+    data = cargar_clanes()
+    for clan, info in data.items():
+        if user_id == info["lider"] or user_id in info["miembros"]:
+            return clan
+    return None
+
+# --- INTERFAZ DEL FORMULARIO ---
+
+class FormularioClan(discord.ui.Modal, title='Registro de Nuevo Clan'):
+    nombre = discord.ui.TextInput(label='Nombre del Clan', placeholder='Ej: Los Patata Caliente', min_length=3, max_length=20)
+    color = discord.ui.TextInput(label='Color Hexadecimal', placeholder='Ej: #FF0000', min_length=7, max_length=7)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        nombre_clan = self.nombre.value
+        color_hex = self.color.value.replace("#", "")
+        
+        # Validar si el nombre existe
+        if nombre_clan in cargar_clanes():
+            return await interaction.response.send_message("❌ Ese nombre de clan ya existe.", ephemeral=True)
+
+        try:
+            color = discord.Color(int(color_hex, 16))
+        except:
+            return await interaction.response.send_message("❌ Formato de color inválido. Usa #HEX.", ephemeral=True)
+
+        # Si el nombre y color son válidos, pasamos a elegir miembros
+        view = VistaSeleccionMiembros(nombre_clan, color)
+        await interaction.response.send_message(f"✅ Nombre y color aceptados. Ahora selecciona al Líder y Miembros para **{nombre_clan}**:", view=view, ephemeral=True)
+
+class VistaSeleccionMiembros(discord.ui.View):
+    def __init__(self, nombre, color):
+        super().__init__()
+        self.nombre = nombre
+        self.color = color
+        self.lider = None
+        self.miembros = []
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecciona al LÍDER", min_values=1, max_values=1)
+    async def elegir_lider(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0]
+        clan_actual = usuario_en_clan(user.id)
+        if clan_actual:
+            return await interaction.response.send_message(f"❌ {user.display_name} ya está en el clan: {clan_actual}", ephemeral=True)
+        self.lider = user
+        await interaction.response.send_message(f"👑 Líder fijado: {user.display_name}", ephemeral=True)
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecciona a los MIEMBROS", min_values=1, max_values=10)
+    async def elegir_miembros(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        for user in select.values:
+            clan_actual = usuario_en_clan(user.id)
+            if clan_actual:
+                return await interaction.response.send_message(f"❌ {user.display_name} ya está en el clan: {clan_actual}", ephemeral=True)
+        self.miembros = select.values
+        await interaction.response.send_message(f"👥 Miembros seleccionados: {len(self.miembros)}", ephemeral=True)
+
+    @discord.ui.button(label="CREAR CLAN AHORA", style=discord.ButtonStyle.green)
+    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.lider:
+            return await interaction.response.send_message("Debes elegir un líder primero.", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        
+        # 1. Crear Roles
+        rol_clan = await guild.create_role(name=self.nombre, color=self.color, mentionable=True)
+        rol_lider = await guild.create_role(name=f"{self.nombre}-Lider", color=self.color, mentionable=True)
+
+        # 2. Asignar Roles
+        await self.lider.add_roles(rol_clan, rol_lider)
+        for m in self.miembros:
+            await m.add_roles(rol_clan)
+
+        # 3. Categoría y Canales
+        perms = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            rol_clan: discord.PermissionOverwrite(view_channel=True)
+        }
+        cat = await guild.create_category(self.nombre, overwrites=perms)
+        
+        # Avisos (Solo líder escribe)
+        p_avisos = {rol_clan: discord.PermissionOverwrite(send_messages=False), rol_lider: discord.PermissionOverwrite(send_messages=True)}
+        await guild.create_text_channel('📢-avisos', category=cat, overwrites=p_avisos)
+        await guild.create_text_channel('💬-chat-general', category=cat)
+        await guild.create_voice_channel('🔊-voz-clan', category=cat)
+
+        # 4. Guardar en Base de Datos
+        guardar_clan(self.nombre, self.lider.id, [m.id for m in self.miembros])
+        
+        await interaction.followup.send(f"¡Clan **{self.nombre}** creado con éxito! ✅", ephemeral=True)
+
+class BotonInicio(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Crear un Clan", style=discord.ButtonStyle.primary, custom_id="btn_crear_clan")
+    async def boton(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(FormularioClan())
+
+@bot.event
+async def on_ready():
+    bot.add_view(BotonInicio()) # Para que el botón funcione tras reiniciar el bot
+    print(f"Bot listo: {bot.user}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup_clanes(ctx):
+    embed = discord.Embed(title="SISTEMA DE CLANES", description="Pulsa el botón de abajo para registrar tu clan.\n\n**Requisitos:**\n- No pertenecer a otro clan.\n- Tener un código de color Hex.", color=discord.Color.blue())
+    await ctx.send(embed=embed, view=BotonInicio())
+
+bot.run(TOKEN)

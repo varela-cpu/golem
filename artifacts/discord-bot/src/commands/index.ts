@@ -3,9 +3,10 @@ import { Command } from "../lib/types.js";
 import { crear } from "./crear.js";
 import { eliminar } from "./eliminar.js";
 import { info } from "./info.js";
+import { setup } from "./setup.js";
 
 export const commands = new Collection<string, Command>();
 
-for (const command of [crear, eliminar, info]) {
+for (const command of [crear, eliminar, info, setup]) {
   commands.set(command.data.name, command);
 }
