@@ -29,6 +29,7 @@ export interface ClanesStore {
 interface DB {
   clanes: ClanesStore;
   admin_channel: string | null;
+  auth_log_channel: string | null;
   solicitudes: { [id: string]: SolicitudData };
 }
 
@@ -36,7 +37,7 @@ function ensureFile(): void {
   const dir = path.dirname(DATA_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ clanes: {}, admin_channel: null, solicitudes: {} }, null, 2), "utf-8");
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ clanes: {}, admin_channel: null, auth_log_channel: null, solicitudes: {} }, null, 2), "utf-8");
   }
 }
 
@@ -110,6 +111,16 @@ export function getAdminChannel(): string | null {
 export function setAdminChannel(channelId: string): void {
   const db = loadDB();
   db.admin_channel = channelId;
+  saveDB(db);
+}
+
+export function getAuthLogChannel(): string | null {
+  return loadDB().auth_log_channel ?? null;
+}
+
+export function setAuthLogChannel(channelId: string): void {
+  const db = loadDB();
+  db.auth_log_channel = channelId;
   saveDB(db);
 }
 

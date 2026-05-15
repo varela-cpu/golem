@@ -1,0 +1,208 @@
+import discord
+from discord.ext import commands
+import json
+import os
+
+# --- CONFIGURACIÓN ---
+TOKEN = 'TU_TOKEN_AQUÍ'
+DB_FILE = 'clanes_v2.json'
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- BASE DE DATOS ---
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, 'r') as f: return json.load(f)
+    # Estructura inicial con los nuevos campos de autenticación
+    return {"clanes": {}, "admin_channel": None, "auth_log_channel": None, "solicitudes": {}}
+
+def save_db(data):
+    with open(DB_FILE, 'w') as f: json.dump(data, f, indent=4)
+
+def get_user_clan(user_id):
+    db = load_db()
+    for name, info in db["clanes"].items():
+        if user_id == info['lider_id'] or user_id in info['miembros_ids']:
+            return name
+    return None
+
+# --- SISTEMA DE AUTENTICACIÓN (NUEVO) ---
+
+class AuthModal(discord.ui.Modal, title='Autenticación de Minecraft'):
+    mc_user = discord.ui.TextInput(
+        label='Tú nombre en minecraft',
+        placeholder='Escribe tu nombre exacto de Java/Bedrock...',
+        min_length=3,
+        max_length=16,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        db = load_db()
+        log_channel_id = db.get("auth_log_channel")
+        
+        if not log_channel_id:
+            return await interaction.response.send_message("❌ Error: El canal de logs no ha sido configurado por un admin.", ephemeral=True)
+
+        # 1. Intentar dar el rol "Autenticado"
+        role = discord.utils.get(interaction.guild.roles, name="Autenticado")
+        if role:
+            await interaction.user.add_roles(role)
+        else:
+            return await interaction.response.send_message("❌ Error: No se encontró el rol llamado 'Autenticado'.", ephemeral=True)
+
+        # 2. Enviar el log al canal configurado
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            embed_log = discord.Embed(title="Nueva Autenticación", color=discord.Color.orange())
+            embed_log.add_field(name="Usuario Discord", value=interaction.user.mention, inline=True)
+            embed_log.add_field(name="Usuario Minecraft", value=f"`{self.mc_user.value}`", inline=True)
+            await log_channel.send(embed=embed_log)
+
+        await interaction.response.send_message(f"✅ ¡Perfecto! Te has autenticado como `{self.mc_user.value}`. Ya tienes acceso al servidor.", ephemeral=True)
+
+class AuthView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Persistente
+
+    @discord.ui.button(label="Autenticar", style=discord.ButtonStyle.orange, custom_id="auth_btn")
+    async def authenticate(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AuthModal())
+
+# --- VISTAS DE CLANES (TU CÓDIGO ANTERIOR) ---
+
+class MemberInviteView(discord.ui.View):
+    def __init__(self, clan_name, role_id):
+        super().__init__(timeout=86400)
+        self.clan_name = clan_name
+        self.role_id = role_id
+
+    @discord.ui.button(label="Aceptar Invitación", style=discord.ButtonStyle.green)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        clan_name = self.clan_name
+        if get_user_clan(interaction.user.id):
+            return await interaction.response.send_message("Ya perteneces a un clan.", ephemeral=True)
+        db = load_db()
+        for g in bot.guilds:
+            role = g.get_role(self.role_id)
+            if role:
+                member = g.get_member(interaction.user.id)
+                if member:
+                    await member.add_roles(role)
+                    db["clanes"][clan_name]["miembros_ids"].append(interaction.user.id)
+                    save_db(db)
+                    return await interaction.response.send_message(f"¡Te has unido a {clan_name}!")
+        await interaction.response.send_message("Error al unirte.")
+
+class AdminApprovalView(discord.ui.View):
+    def __init__(self, clan_data):
+        super().__init__(timeout=None)
+        self.clan_data = clan_data
+
+    @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        d = self.clan_data
+        color = discord.Color(int(d['color'].replace("#",""), 16))
+        r_clan = await guild.create_role(name=d['nombre'], color=color)
+        r_lider = await guild.create_role(name=f"{d['nombre']}-Lider", color=color)
+        lider = guild.get_member(d['lider_id'])
+        if lider: await lider.add_roles(r_clan, r_lider)
+        overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False), r_clan: discord.PermissionOverwrite(view_channel=True)}
+        cat = await guild.create_category(d['nombre'], overwrites=overwrites)
+        await guild.create_text_channel('📢-avisos', category=cat)
+        await guild.create_text_channel('💬-chat-general', category=cat)
+        db = load_db()
+        db["clanes"][d['nombre']] = {"lider_id": d['lider_id'], "miembros_ids": [], "rol_id": r_clan.id, "rol_lider_id": r_lider.id, "cat_id": cat.id}
+        save_db(db)
+        for m_id in d['miembros_ids']:
+            member = guild.get_member(m_id)
+            if member:
+                try: await member.send(f"Invitado a {d['nombre']}", view=MemberInviteView(d['nombre'], r_clan.id))
+                except: pass
+        await interaction.response.send_message(f"Clan {d['nombre']} creado.")
+        await interaction.message.delete()
+
+class ClanModal(discord.ui.Modal, title='Solicitud de Creación de Clan'):
+    nombre = discord.ui.TextInput(label='Nombre del Clan')
+    color = discord.ui.TextInput(label='Color HEX', default="#FFFFFF")
+    def __init__(self, mv):
+        super().__init__(); self.mv = mv
+    async def on_submit(self, interaction: discord.Interaction):
+        db = load_db()
+        channel = bot.get_channel(db["admin_channel"])
+        data = {"nombre": self.nombre.value, "color": self.color.value, "lider_id": self.mv.lider.id, "miembros_ids": [m.id for m in self.mv.miembros]}
+        embed = discord.Embed(title="Nueva Solicitud", color=discord.Color.blue())
+        embed.add_field(name="Nombre", value=data["nombre"])
+        await channel.send(embed=embed, view=AdminApprovalView(data))
+        await interaction.response.send_message("Solicitud enviada.", ephemeral=True)
+
+class MemberSelect(discord.ui.View):
+    def __init__(self):
+        super().__init__()
+        self.lider = None; self.miembros = []
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecciona al Líder")
+    async def sel_lider(self, i, s): self.lider = s.values[0]; await i.response.defer()
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecciona Miembros", min_values=1, max_values=10)
+    async def sel_mems(self, i, s): self.miembros = s.values; await i.response.defer()
+    @discord.ui.button(label="Siguiente", style=discord.ButtonStyle.gray)
+    async def next(self, i, b): await i.response.send_modal(ClanModal(self))
+
+# --- COMANDOS ---
+
+@bot.event
+async def on_ready():
+    # Esto hace que los botones sigan funcionando si el bot se reinicia
+    bot.add_view(AuthView())
+    print(f"✅ Bot listo como {bot.user}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def comand_chat(ctx):
+    db = load_db()
+    db["auth_log_channel"] = ctx.channel.id
+    save_db(db)
+    await ctx.send(f"✅ Los nombres de la Whitelist se enviarán a {ctx.channel.mention}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup_autenticacion(ctx):
+    embed = discord.Embed(
+        title="🛡️ Obtener verificación",
+        description=(
+            "¡Bienvenido/a a nuestro servidor!\n\n"
+            "Este servidor es para nuestro servidor de Minecraft.\n\n"
+            "Aquí podrás compartir con otras personas del servidor en un chat público, "
+            "podrás saber información importante relacionada con dicho servidor.\n\n"
+            "Podrás crear tus propios clanes (con mínimo dos personas).\n\n"
+            "Por favor introduce tu nombre de usuario en Minecraft aquí, y luego dale al botón de autenticar. "
+            "Lo necesitaremos para agregarte a la whitelist."
+        ),
+        color=discord.Color.orange()
+    )
+    # Imagen de Minecraft (puedes cambiar el link por la tuya)
+    embed.set_image(url="https://i.imgur.com/8fS0S6A.png") 
+    embed.set_footer(text="Sistema de Seguridad Golem", icon_url="https://i.imgur.com/vMvX7pT.png")
+    
+    await ctx.send(embed=embed, view=AuthView())
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def canal_staff(ctx):
+    db = load_db()
+    db["admin_channel"] = ctx.channel.id
+    save_db(db)
+    await ctx.send(f"Canal de clanes configurado en {ctx.channel.mention}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup(ctx):
+    embed = discord.Embed(title="⚔️ SISTEMA DE CLANES ⚔️", description="¡Crea tu propia facción!", color=discord.Color.dark_red())
+    view = discord.ui.View()
+    btn = discord.ui.Button(label="Pedir Creación de Clan", style=discord.ButtonStyle.danger)
+    btn.callback = lambda i: i.response.send_message("Elige integrantes:", view=MemberSelect(), ephemeral=True)
+    view.add_item(btn)
+    await ctx.send(embed=embed, view=view)
+
+bot.run(TOKEN)

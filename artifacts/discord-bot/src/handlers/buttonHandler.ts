@@ -22,6 +22,7 @@ import {
   guardarSolicitud,
   usuarioEnClan,
 } from "../lib/data.js";
+
 import { logger } from "../lib/logger.js";
 import { clearPending, clearPendingRequest, getPending, getPendingRequest, setPendingRequest } from "../lib/pending.js";
 
@@ -308,6 +309,27 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       logger.error({ err }, "Error al crear clan via formulario");
       await interaction.editReply({ content: "❌ Error al crear el clan.", components: [] });
     }
+    return;
+  }
+
+  // ── Authentication button ─────────────────────────────────────────────────
+  if (customId === "auth_btn") {
+    const modal = new ModalBuilder()
+      .setCustomId("modal_auth")
+      .setTitle("Autenticación de Minecraft")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId("mc_username")
+            .setLabel("Tu nombre en Minecraft")
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder("Escribe tu nombre exacto de Java/Bedrock...")
+            .setMinLength(3)
+            .setMaxLength(16)
+            .setRequired(true)
+        )
+      );
+    await interaction.showModal(modal);
     return;
   }
 

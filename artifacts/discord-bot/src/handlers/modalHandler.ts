@@ -10,6 +10,7 @@ import {
 import {
   clanExiste,
   getAdminChannel,
+  getAuthLogChannel,
   guardarSolicitud,
   usuarioEnClan,
 } from "../lib/data.js";
@@ -124,6 +125,63 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
     );
 
     await interaction.reply({ content: `Selecciona al Líder y a los miembros para **${nombre}**`, components: [liderRow, miembrosRow, buttonRow], ephemeral: true });
+    return;
+  }
+
+  // ── Minecraft authentication modal ───────────────────────────────────────
+  if (interaction.customId === "modal_auth") {
+    if (!interaction.guild) {
+      await interaction.reply({ content: "❌ Solo se puede usar en un servidor.", ephemeral: true });
+      return;
+    }
+
+    const mcUsername = interaction.fields.getTextInputValue("mc_username").trim();
+
+    const logChannelId = getAuthLogChannel();
+    if (!logChannelId) {
+      await interaction.reply({
+        content: "❌ Error: El canal de logs no ha sido configurado. Pide a un admin que use `/comand_chat`.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const autenticadoRole = interaction.guild.roles.cache.find((r) => r.name === "Autenticado");
+    if (!autenticadoRole) {
+      await interaction.reply({
+        content: "❌ Error: No se encontró el rol llamado **Autenticado**. Pide a un admin que lo cree.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    try {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      await member.roles.add(autenticadoRole);
+    } catch (err) {
+      logger.error({ err }, "No se pudo asignar el rol Autenticado");
+      await interaction.reply({ content: "❌ No se pudo asignar el rol. Verifica los permisos del bot.", ephemeral: true });
+      return;
+    }
+
+    const logChannel = interaction.client.channels.cache.get(logChannelId) as TextChannel | undefined;
+    if (logChannel) {
+      const logEmbed = new EmbedBuilder()
+        .setTitle("Nueva Autenticación")
+        .setColor(0xe67e22)
+        .addFields(
+          { name: "Usuario Discord", value: `${interaction.user}`, inline: true },
+          { name: "Usuario Minecraft", value: `\`${mcUsername}\``, inline: true }
+        )
+        .setTimestamp();
+      await logChannel.send({ embeds: [logEmbed] });
+    }
+
+    logger.info({ userId: interaction.user.id, mcUsername }, "Usuario autenticado");
+    await interaction.reply({
+      content: `✅ ¡Perfecto! Te has autenticado como \`${mcUsername}\`. Ya tienes acceso al servidor.`,
+      ephemeral: true,
+    });
     return;
   }
 }
