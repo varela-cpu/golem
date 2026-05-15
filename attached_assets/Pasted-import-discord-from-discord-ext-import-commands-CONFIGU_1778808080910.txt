@@ -1,0 +1,56 @@
+import discord
+from discord.ext import commands
+
+# CONFIGURACIÓN BÁSICA
+TOKEN = 1504652047159660707 
+PREFIJO = '/' # Puedes usar el que quieras
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix=PREFIJO, intents=intents)
+
+@bot.event
+async def on_ready():
+    print(f'✅ Bot conectado como {bot.user}')
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def crear(ctx, nombre_clan, lider: discord.Member, color_hex, *miembros: discord.Member):
+    guild = ctx.guild
+    
+    # Limpiar el color hex (quitar el # si lo trae)
+    color_hex = color_hex.replace('#', '')
+    color = discord.Color(int(color_hex, 16))
+
+    await ctx.send(f"⏳ Creando el clan **{nombre_clan}**... esto puede tardar un poco.")
+
+    # 1. Crear Roles
+    rol_clan = await guild.create_role(name=nombre_clan, color=color, mentionable=True)
+    rol_lider = await guild.create_role(name=f"{nombre_clan}-lider", color=color, mentionable=True)
+
+    # 2. Asignar roles al líder
+    await lider.add_roles(rol_clan, rol_lider)
+
+    # 3. Asignar rol de clan a los miembros adicionales
+    for miembro in miembros:
+        await miembro.add_roles(rol_clan)
+
+    # 4. Crear Categoría Privada
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        rol_clan: discord.PermissionOverwrite(view_channel=True)
+    }
+    categoria = await guild.create_category(nombre_clan, overwrites=overwrites)
+
+    # 5. Crear Canales
+    # Canal de Avisos (Solo el líder escribe)
+    overwrites_avisos = {
+        rol_clan: discord.PermissionOverwrite(send_messages=False),
+        rol_lider: discord.PermissionOverwrite(send_messages=True)
+    }
+    await guild.create_text_channel('📢-avisos', category=categoria, overwrites=overwrites_avisos)
+    await guild.create_text_channel('💬-chat-clan', category=categoria)
+    await guild.create_voice_channel('🔊-voz-clan', category=categoria)
+
+    await ctx.send(f"✅ **¡Hecho!** El clan **{nombre_clan}** ha sido creado para {lider.mention} y {len(miembros)} miembros.")
+
+bot.run(TOKEN)
