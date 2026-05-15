@@ -1,0 +1,188 @@
+import discord
+from discord.ext import commands
+import json
+import os
+
+# --- CONFIGURACIÓN ---
+TOKEN = 'TU_TOKEN_AQUI'
+FILE_DATABASE = 'database_clanes.json'
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- SISTEMA DE BASE DE DATOS ---
+def load_db():
+    if os.path.exists(FILE_DATABASE):
+        with open(FILE_DATABASE, 'r') as f: return json.load(f)
+    return {}
+
+def save_db(data):
+    with open(FILE_DATABASE, 'w') as f: json.dump(data, f, indent=4)
+
+def get_user_clan(user_id):
+    db = load_db()
+    for name, info in db.items():
+        if user_id == info['lider_id'] or user_id in info['miembros_ids']:
+            return name
+    return None
+
+# --- INTERFAZ: FORMULARIO ---
+class ClanModal(discord.ui.Modal, title='Registro de Clan'):
+    nombre = discord.ui.TextInput(label='Nombre del Clan', placeholder='Ej: Los Constructores', min_length=3, max_length=25)
+    color_hex = discord.ui.TextInput(label='Color (HEX o nombre)', placeholder='Ej: #FF5733 o dejar azul', default='#3498DB')
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if self.nombre.value in load_db():
+            return await interaction.response.send_message("Ese nombre de clan ya existe.", ephemeral=True)
+        
+        # Guardamos datos temporales y pasamos a la selección de miembros
+        view = MemberSelectView(self.nombre.value, self.color_hex.value)
+        await interaction.response.send_message(f"Selecciona al Líder y a los miembros para **{self.nombre.value}**", view=view, ephemeral=True)
+
+class MemberSelectView(discord.ui.View):
+    def __init__(self, nombre, color):
+        super().__init__(timeout=None)
+        self.nombre = nombre
+        self.color = color
+        self.lider = None
+        self.miembros = []
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="👑 Selecciona al Líder", min_values=1, max_values=1)
+    async def select_lider(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0]
+        if get_user_clan(user.id):
+            return await interaction.response.send_message(f"{user.name} ya pertenece a un clan.", ephemeral=True)
+        self.lider = user
+        await interaction.response.defer()
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="👥 Selecciona Miembros (Mínimo 1)", min_values=1, max_values=10)
+    async def select_members(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        for user in select.values:
+            if get_user_clan(user.id):
+                return await interaction.response.send_message(f"{user.name} ya pertenece a un clan.", ephemeral=True)
+        self.miembros = select.values
+        await discord.InteractionResponse.defer(interaction)
+
+    @discord.ui.button(label="Finalizar Creación", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.lider or len(self.miembros) < 1:
+            return await interaction.response.send_message("Falta elegir líder o necesitas al menos 1 miembro extra.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        
+        # Color Logic
+        try:
+            c_val = int(self.color.replace("#", ""), 16)
+            color = discord.Color(c_val)
+        except:
+            color = discord.Color.blue()
+
+        # Crear Roles
+        r_clan = await guild.create_role(name=self.nombre, color=color, mentionable=True)
+        r_lider = await guild.create_role(name=f"{self.nombre}-Lider", color=color, mentionable=True)
+
+        # Asignar Roles
+        await self.lider.add_roles(r_clan, r_lider)
+        for m in self.miembros:
+            await m.add_roles(r_clan)
+
+        # Categoría y Canales
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            r_clan: discord.PermissionOverwrite(view_channel=True)
+        }
+        cat = await guild.create_category(self.nombre, overwrites=overwrites)
+        
+        ch_avisos = await guild.create_text_channel('avisos-clan', category=cat)
+        await ch_avisos.set_permissions(r_clan, send_messages=False)
+        await ch_avisos.set_permissions(r_lider, send_messages=True)
+        
+        ch_chat = await guild.create_text_channel('chat-general', category=cat)
+        ch_voz = await guild.create_voice_channel('Voz Clan', category=cat)
+
+        # Guardar en DB
+        db = load_db()
+        db[self.nombre] = {
+            "lider_id": self.lider.id,
+            "miembros_ids": [m.id for m in self.miembros],
+            "rol_id": r_clan.id,
+            "rol_lider_id": r_lider.id,
+            "cat_id": cat.id
+        }
+        save_db(db)
+
+        # Mensaje Público
+        embed = discord.Embed(title="NUEVO CLAN CREADO", color=color)
+        embed.add_field(name="Clan", value=self.nombre)
+        embed.add_field(name="Líder", value=self.lider.mention)
+        embed.add_field(name="Miembros", value=f"{len(self.miembros) + 1} totales")
+        await interaction.channel.send(embed=embed)
+        await interaction.followup.send("¡Todo creado correctamente!", ephemeral=True)
+
+# --- COMANDO BORRAR (CON SELECTOR) ---
+class DeleteClanSelect(discord.ui.Select):
+    def __init__(self, options):
+        super().__init__(placeholder="Selecciona el clan a eliminar...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        db = load_db()
+        clan_data = db.pop(self.values[0])
+        guild = interaction.guild
+
+        # Eliminar Canales y Categoría
+        cat = guild.get_channel(clan_data['cat_id'])
+        if cat:
+            for channel in cat.channels: await channel.delete()
+            await cat.delete()
+
+        # Eliminar Roles
+        r1 = guild.get_role(clan_data['rol_id'])
+        r2 = guild.get_role(clan_data['rol_lider_id'])
+        if r1: await r1.delete()
+        if r2: await r2.delete()
+
+        save_db(db)
+        await interaction.response.send_message(f"El clan **{self.values[0]}** ha sido disuelto.", ephemeral=False)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+def setup(ctx):
+    view = discord.ui.View()
+    btn = discord.ui.Button(label="Registrar Clan", style=discord.ButtonStyle.primary)
+    async def btn_callback(interaction):
+        await interaction.response.send_modal(ClanModal())
+    btn.callback = btn_callback
+    view.add_item(btn)
+    
+    embed = discord.Embed(title="Gestión de Clanes", description="Haz clic abajo para iniciar el trámite de tu clan.")
+    await ctx.send(embed=embed, view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def borrar_clan(ctx):
+    db = load_db()
+    if not db: return await ctx.send("No hay clanes registrados.")
+    
+    options = [discord.SelectOption(label=name) for name in db.keys()]
+    view = discord.ui.View()
+    view.add_item(DeleteClanSelect(options))
+    await ctx.send("Selecciona qué clan quieres eliminar:", view=view)
+
+@bot.command()
+async def mi_clan(ctx, usuario: discord.Member = None):
+    usuario = usuario or ctx.author
+    clan = get_user_clan(usuario.id)
+    if clan:
+        await ctx.send(f"👤 {usuario.display_name} pertenece al clan: **{clan}**")
+    else:
+        await ctx.send(f"👤 {usuario.display_name} no pertenece a ningún clan.")
+
+@bot.command()
+async def lista_clanes(ctx):
+    db = load_db()
+    if not db: return await ctx.send("No hay clanes todavía.")
+    msg = "**Clanes actuales:**\n" + "\n".join([f"• {name}" for name in db.keys()])
+    await ctx.send(msg)
+
+bot.run(TOKEN)
