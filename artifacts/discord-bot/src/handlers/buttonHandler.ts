@@ -365,7 +365,7 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
     const logChannelId = getAuthLogChannel();
     if (logChannelId) {
       const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
-      await logChannel?.send(solicitud.mcUsername);
+      await logChannel?.send(`!c whitelist add ${solicitud.mcUsername}`);
     }
 
     eliminarSolicitudAuth(targetUserId);
