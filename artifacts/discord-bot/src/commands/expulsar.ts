@@ -1,8 +1,9 @@
 import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
+  TextChannel,
 } from "discord.js";
-import { cargarClanes, eliminarMiembroDeClan, usuarioEnClan } from "../lib/data.js";
+import { cargarClanes, eliminarMiembroDeClan, getAuthLogChannel, getMcUsername, usuarioEnClan } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
 import { Command } from "../lib/types.js";
 
@@ -49,6 +50,15 @@ export const expulsar: Command = {
       if (rol) await member.roles.remove(rol);
 
       eliminarMiembroDeClan(clanNombre, target.id);
+
+      const logChannelId = getAuthLogChannel();
+      if (logChannelId) {
+        const logChannel = interaction.client.channels.cache.get(logChannelId) as TextChannel | undefined;
+        if (logChannel) {
+          const memberMc = getMcUsername(target.id) ?? target.username;
+          await logChannel.send(`!c lp user ${memberMc} parent remove ${clanNombre}`);
+        }
+      }
 
       logger.info({ clan: clanNombre, expelled: target.id }, "Miembro expulsado");
       await interaction.editReply(`✅ **${target.displayName}** ha sido expulsado del clan **${clanNombre}**.`);

@@ -36,17 +36,21 @@ export const invitar: Command = {
 
     const target = interaction.options.getUser("usuario", true);
 
+    if (target.id === interaction.user.id) {
+      await interaction.reply({ content: "❌ No puedes invitarte a ti mismo.", ephemeral: true });
+      return;
+    }
+
     if (usuarioEnClan(target.id)) {
       await interaction.reply({ content: `❌ **${target.displayName}** ya pertenece a un clan.`, ephemeral: true });
       return;
     }
 
-    const rolId = db[clanNombre].rol_id;
     const guildId = interaction.guild.id;
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`aceptar_invitacion:${guildId}:${clanNombre}:${rolId}`)
+        .setCustomId(`aceptar_invitacion:${guildId}:${clanNombre}`)
         .setLabel("Aceptar Invitación")
         .setStyle(ButtonStyle.Success)
     );

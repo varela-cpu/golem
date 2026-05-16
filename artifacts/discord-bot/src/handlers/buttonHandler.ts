@@ -9,70 +9,37 @@ import {
   TextChannel,
   TextInputBuilder,
   TextInputStyle,
-  UserSelectMenuBuilder,
 } from "discord.js";
 import {
+  activarClan,
   agregarMiembroAClan,
+  cargarClanes,
   clanExiste,
   eliminarClanData,
   eliminarSolicitud,
   eliminarSolicitudAuth,
   getAdminChannel,
   getAuthLogChannel,
+  getMcUsername,
   getSolicitud,
   getSolicitudAuth,
   guardarClan,
   guardarSolicitud,
+  setMcUsername,
   usuarioEnClan,
 } from "../lib/data.js";
 
 import { logger } from "../lib/logger.js";
-import { clearPending, clearPendingRequest, getPending, getPendingRequest, setPendingRequest } from "../lib/pending.js";
+import { clearPending, getPending } from "../lib/pending.js";
 
 export async function handleButton(interaction: ButtonInteraction, client: Client): Promise<void> {
   const { customId, user, guild } = interaction;
 
-  // ── "Pedir Creación de Clan" public button ──────────────────────────────
+  // ── "Pedir Creación de Clan" public button — directly opens modal ────────
   if (customId === "btn_pedir_clan") {
-    setPendingRequest(user.id, { lider: null, miembros: [] });
-
-    const liderRow = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
-      new UserSelectMenuBuilder()
-        .setCustomId("select_lider_req")
-        .setPlaceholder("👑 Selecciona al Líder")
-        .setMinValues(1)
-        .setMaxValues(1)
-    );
-    const miembrosRow = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
-      new UserSelectMenuBuilder()
-        .setCustomId("select_miembros_req")
-        .setPlaceholder("👥 Selecciona Miembros (Mínimo 1)")
-        .setMinValues(1)
-        .setMaxValues(10)
-    );
-    const btnRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("btn_siguiente_req")
-        .setLabel("Siguiente →")
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    await interaction.reply({
-      content: "Elige a los integrantes del clan:",
-      components: [liderRow, miembrosRow, btnRow],
-      ephemeral: true,
-    });
-    return;
-  }
-
-  // ── "Siguiente" — open the name/color modal ─────────────────────────────
-  if (customId === "btn_siguiente_req") {
-    const req = getPendingRequest(user.id);
-    if (!req?.lider || req.miembros.length < 1) {
-      await interaction.reply({
-        content: "❌ Debes seleccionar un líder y al menos 1 miembro antes de continuar.",
-        ephemeral: true,
-      });
+    const clanActual = usuarioEnClan(user.id);
+    if (clanActual) {
+      await interaction.reply({ content: `❌ Ya perteneces al clan **${clanActual}**.`, ephemeral: true });
       return;
     }
 
@@ -93,7 +60,7 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId("color_hex")
-            .setLabel("Color HEX")
+            .setLabel("Color HEX (opcional)")
             .setStyle(TextInputStyle.Short)
             .setValue("#FFFFFF")
             .setMinLength(4)
@@ -124,87 +91,63 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
 
     await interaction.deferUpdate();
 
-    try {
-      const rolClan = await targetGuild.roles.create({
-        name: sol.nombre,
-        color: sol.colorInt,
-        mentionable: true,
-        reason: `Clan aprobado: ${sol.nombre}`,
-      });
-      const rolLider = await targetGuild.roles.create({
-        name: `${sol.nombre}-Lider`,
-        color: sol.colorInt,
-        mentionable: true,
-        reason: `Líder del clan: ${sol.nombre}`,
-      });
+    guardarClan(sol.nombre, sol.lider_id, [], "", "", "", sol.colorInt, sol.colorHex, false);
+    eliminarSolicitud(solId);
 
-      try {
-        const liderMember = await targetGuild.members.fetch(sol.lider_id);
-        await liderMember.roles.add([rolClan, rolLider]);
-      } catch {
-        logger.warn({ userId: sol.lider_id }, "No se pudo asignar rol al líder");
+    const logChannelId = getAuthLogChannel();
+    if (logChannelId) {
+      const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
+      if (logChannel) {
+        await logChannel.send(`!c lp creategroup ${sol.nombre}`);
+        await logChannel.send(`!c lp group ${sol.nombre} meta setprefix "&#${sol.colorHex}[${sol.nombre}] "`);
       }
-
-      const overwrites = [
-        { id: targetGuild.roles.everyone.id, deny: ["ViewChannel" as const] },
-        { id: rolClan.id, allow: ["ViewChannel" as const] },
-      ];
-      const categoria = await targetGuild.channels.create({
-        name: sol.nombre,
-        type: 4,
-        permissionOverwrites: overwrites,
-        reason: `Clan aprobado: ${sol.nombre}`,
-      });
-      await targetGuild.channels.create({
-        name: "📢-avisos",
-        type: 0,
-        parent: categoria.id,
-        permissionOverwrites: [
-          { id: targetGuild.roles.everyone.id, deny: ["ViewChannel" as const] },
-          { id: rolClan.id, allow: ["ViewChannel" as const], deny: ["SendMessages" as const] },
-          { id: rolLider.id, allow: ["ViewChannel" as const, "SendMessages" as const] },
-        ],
-      });
-      await targetGuild.channels.create({ name: "💬-chat-general", type: 0, parent: categoria.id, permissionOverwrites: overwrites });
-      await targetGuild.channels.create({ name: "🔊-voz-clan", type: 2, parent: categoria.id, permissionOverwrites: overwrites });
-
-      guardarClan(sol.nombre, sol.lider_id, [], rolClan.id, rolLider.id, categoria.id);
-      eliminarSolicitud(solId);
-
-      // Send DM invitations to selected members
-      for (const mId of sol.miembros_ids) {
-        try {
-          const member = await targetGuild.members.fetch(mId);
-          const inviteRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`aceptar_invitacion:${sol.guild_id}:${sol.nombre}:${rolClan.id}`)
-              .setLabel("Aceptar Invitación")
-              .setStyle(ButtonStyle.Success)
-          );
-          await member.send({
-            content: `Has sido invitado al clan **${sol.nombre}** en **${targetGuild.name}**. ¿Aceptas?`,
-            components: [inviteRow],
-          });
-        } catch {
-          logger.warn({ userId: mId }, "No se pudo enviar DM a miembro");
-        }
-      }
-
-      logger.info({ clan: sol.nombre, lider: sol.lider_id }, "Clan aprobado y creado");
-
-      await interaction.editReply({
-        content: `✅ Clan **${sol.nombre}** creado. Los miembros han sido notificados por DM.`,
-        components: [],
-        embeds: [],
-      });
-    } catch (err) {
-      logger.error({ err }, "Error al aprobar clan");
-      await interaction.editReply({
-        content: "❌ Error al crear el clan. Verifica los permisos del bot.",
-        components: [],
-        embeds: [],
-      });
     }
+
+    try {
+      const lider = await targetGuild.members.fetch(sol.lider_id);
+      await lider.send(
+        `✅ ¡Tu solicitud para crear el clan **${sol.nombre}** ha sido aprobada!\n\n` +
+        `Ahora usa \`/invitar\` para añadir miembros.\n` +
+        `⚠️ Los canales y roles de Discord se crearán cuando el **primer miembro acepte** tu invitación.`
+      );
+    } catch {
+      logger.warn({ userId: sol.lider_id }, "No se pudo enviar DM al líder tras aprobación");
+    }
+
+    logger.info({ clan: sol.nombre, lider: sol.lider_id }, "Clan aprobado — pendiente de activación");
+
+    await interaction.editReply({
+      content: `✅ Clan **${sol.nombre}** aprobado. El líder ha sido notificado por DM.`,
+      components: [],
+      embeds: [],
+    });
+    return;
+  }
+
+  // ── Admin rejects a clan request ─────────────────────────────────────────
+  if (customId.startsWith("rechazar_clan:")) {
+    const solId = customId.split(":")[1];
+    const sol = getSolicitud(solId);
+    if (!sol) {
+      await interaction.reply({ content: "❌ Solicitud no encontrada.", ephemeral: true });
+      return;
+    }
+
+    eliminarSolicitud(solId);
+
+    try {
+      const targetGuild = client.guilds.cache.get(sol.guild_id);
+      if (targetGuild) {
+        const lider = await targetGuild.members.fetch(sol.lider_id);
+        await lider.send(`❌ Tu solicitud para crear el clan **${sol.nombre}** ha sido rechazada por el staff.`);
+      }
+    } catch { /* skip */ }
+
+    await interaction.update({
+      content: `❌ Solicitud del clan **${sol.nombre}** rechazada.`,
+      components: [],
+      embeds: [],
+    });
     return;
   }
 
@@ -213,7 +156,6 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
     const parts = customId.split(":");
     const guildId = parts[1];
     const clanNombre = parts[2];
-    const rolId = parts[3];
 
     if (usuarioEnClan(user.id)) {
       await interaction.reply({ content: "❌ Ya perteneces a un clan.", ephemeral: true });
@@ -230,14 +172,96 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       return;
     }
 
-    try {
-      const member = await targetGuild.members.fetch(user.id);
-      const rol = targetGuild.roles.cache.get(rolId);
-      if (rol) await member.roles.add(rol);
-      agregarMiembroAClan(clanNombre, user.id);
+    const clanes = cargarClanes();
+    const clan = clanes[clanNombre];
+    if (!clan) {
+      await interaction.reply({ content: "❌ El clan ya no existe.", ephemeral: true });
+      return;
+    }
 
-      logger.info({ clan: clanNombre, userId: user.id }, "Miembro aceptó invitación");
-      await interaction.update({ content: `✅ ¡Te has unido al clan **${clanNombre}**!`, components: [] });
+    try {
+      const logChannelId = getAuthLogChannel();
+      const logChannel = logChannelId ? (client.channels.cache.get(logChannelId) as TextChannel | undefined) : undefined;
+      const memberMc = getMcUsername(user.id) ?? user.username;
+
+      if (!clan.activated) {
+        // First member — create Discord roles + channels and activate clan
+        const rolClan = await targetGuild.roles.create({
+          name: clanNombre,
+          color: clan.colorInt,
+          mentionable: true,
+          reason: `Clan activado: ${clanNombre}`,
+        });
+        const rolLider = await targetGuild.roles.create({
+          name: `${clanNombre}-Lider`,
+          color: clan.colorInt,
+          mentionable: true,
+          reason: `Líder del clan: ${clanNombre}`,
+        });
+
+        const overwrites = [
+          { id: targetGuild.roles.everyone.id, deny: ["ViewChannel" as const] },
+          { id: rolClan.id, allow: ["ViewChannel" as const] },
+        ];
+        const categoria = await targetGuild.channels.create({
+          name: clanNombre,
+          type: 4,
+          permissionOverwrites: overwrites,
+          reason: `Clan activado: ${clanNombre}`,
+        });
+        await targetGuild.channels.create({
+          name: "📢-avisos",
+          type: 0,
+          parent: categoria.id,
+          permissionOverwrites: [
+            { id: targetGuild.roles.everyone.id, deny: ["ViewChannel" as const] },
+            { id: rolClan.id, allow: ["ViewChannel" as const], deny: ["SendMessages" as const] },
+            { id: rolLider.id, allow: ["ViewChannel" as const, "SendMessages" as const] },
+          ],
+        });
+        await targetGuild.channels.create({ name: "💬-chat-general", type: 0, parent: categoria.id, permissionOverwrites: overwrites });
+        await targetGuild.channels.create({ name: "🔊-voz-clan", type: 2, parent: categoria.id, permissionOverwrites: overwrites });
+
+        try {
+          const liderMember = await targetGuild.members.fetch(clan.lider_id);
+          await liderMember.roles.add([rolClan, rolLider]);
+        } catch {
+          logger.warn({ userId: clan.lider_id }, "No se pudo asignar rol al líder en activación");
+        }
+
+        const memberDiscord = await targetGuild.members.fetch(user.id);
+        await memberDiscord.roles.add(rolClan);
+
+        activarClan(clanNombre, rolClan.id, rolLider.id, categoria.id);
+        agregarMiembroAClan(clanNombre, user.id);
+
+        const liderMc = getMcUsername(clan.lider_id) ?? clan.lider_id;
+        if (logChannel) {
+          await logChannel.send(`!c lp user ${liderMc} parent add ${clanNombre}`);
+          await logChannel.send(`!c lp user ${memberMc} parent add ${clanNombre}`);
+        }
+
+        try {
+          const lider = await targetGuild.members.fetch(clan.lider_id);
+          await lider.send(`🎉 ¡Tu clan **${clanNombre}** ya está activo! **${user.username}** aceptó la invitación y los canales han sido creados.`);
+        } catch { /* skip */ }
+
+        logger.info({ clan: clanNombre, userId: user.id }, "Clan activado por primer miembro");
+        await interaction.update({ content: `✅ ¡Te has unido al clan **${clanNombre}**! Los canales acaban de ser creados.`, components: [] });
+      } else {
+        // Subsequent member — clan already active
+        const memberDiscord = await targetGuild.members.fetch(user.id);
+        const rol = targetGuild.roles.cache.get(clan.rol_id);
+        if (rol) await memberDiscord.roles.add(rol);
+        agregarMiembroAClan(clanNombre, user.id);
+
+        if (logChannel) {
+          await logChannel.send(`!c lp user ${memberMc} parent add ${clanNombre}`);
+        }
+
+        logger.info({ clan: clanNombre, userId: user.id }, "Miembro aceptó invitación");
+        await interaction.update({ content: `✅ ¡Te has unido al clan **${clanNombre}**!`, components: [] });
+      }
     } catch (err) {
       logger.error({ err }, "Error al aceptar invitación");
       await interaction.reply({ content: "❌ No se pudo completar la unión al clan.", ephemeral: true });
@@ -245,19 +269,11 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
     return;
   }
 
-  // ── Direct creation confirm (existing flow via /setup old panel) ──────────
+  // ── Direct creation confirm (admin flow via old panel) ────────────────────
   if (customId === "confirmar_clan") {
     const pending = getPending(user.id);
     if (!pending) {
       await interaction.reply({ content: "❌ Sesión expirada. Inicia el proceso de nuevo.", ephemeral: true });
-      return;
-    }
-    if (!pending.lider) {
-      await interaction.reply({ content: "❌ Debes seleccionar un líder primero.", ephemeral: true });
-      return;
-    }
-    if (pending.miembros.length < 1) {
-      await interaction.reply({ content: "❌ Necesitas seleccionar al menos 1 miembro.", ephemeral: true });
       return;
     }
     if (!guild) {
@@ -271,7 +287,8 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       const rolClan = await guild.roles.create({ name: pending.nombre, color: pending.colorInt, mentionable: true });
       const rolLider = await guild.roles.create({ name: `${pending.nombre}-Lider`, color: pending.colorInt, mentionable: true });
 
-      const liderMember = await guild.members.fetch(pending.lider.id);
+      const liderId = pending.lider?.id ?? user.id;
+      const liderMember = await guild.members.fetch(liderId);
       await liderMember.roles.add([rolClan, rolLider]);
       for (const u of pending.miembros) {
         try { await (await guild.members.fetch(u.id)).roles.add(rolClan); } catch { /* skip */ }
@@ -293,15 +310,30 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       await guild.channels.create({ name: "💬-chat-general", type: 0, parent: categoria.id, permissionOverwrites: overwrites });
       await guild.channels.create({ name: "🔊-voz-clan", type: 2, parent: categoria.id, permissionOverwrites: overwrites });
 
-      guardarClan(pending.nombre, pending.lider.id, pending.miembros.map((m) => m.id), rolClan.id, rolLider.id, categoria.id);
+      guardarClan(pending.nombre, liderId, pending.miembros.map((m) => m.id), rolClan.id, rolLider.id, categoria.id, pending.colorInt, pending.colorHex, true);
       clearPending(user.id);
+
+      const logChannelId = getAuthLogChannel();
+      if (logChannelId) {
+        const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
+        if (logChannel) {
+          await logChannel.send(`!c lp creategroup ${pending.nombre}`);
+          await logChannel.send(`!c lp group ${pending.nombre} meta setprefix "&#${pending.colorHex}[${pending.nombre}] "`);
+          const liderMc = getMcUsername(liderId) ?? liderId;
+          await logChannel.send(`!c lp user ${liderMc} parent add ${pending.nombre}`);
+          for (const u of pending.miembros) {
+            const mc = getMcUsername(u.id) ?? u.username;
+            await logChannel.send(`!c lp user ${mc} parent add ${pending.nombre}`);
+          }
+        }
+      }
 
       const embed = new EmbedBuilder()
         .setTitle("NUEVO CLAN CREADO")
         .setColor(pending.colorInt)
         .addFields(
           { name: "Clan", value: pending.nombre, inline: true },
-          { name: "Líder", value: `<@${pending.lider.id}>`, inline: true },
+          { name: "Líder", value: `<@${liderId}>`, inline: true },
           { name: "Miembros", value: `${pending.miembros.length + 1} totales`, inline: true }
         );
 
@@ -361,6 +393,8 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       await interaction.reply({ content: "❌ No se pudo asignar el rol. Verifica los permisos del bot.", ephemeral: true });
       return;
     }
+
+    setMcUsername(targetUserId, solicitud.mcUsername);
 
     const logChannelId = getAuthLogChannel();
     if (logChannelId) {

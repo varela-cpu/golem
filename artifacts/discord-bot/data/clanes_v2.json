@@ -1,5 +1,13 @@
 {
-  "clanes": {},
+  "clanes": {
+    "Los Cracks": {
+      "lider_id": "508321154239299605",
+      "miembros_ids": [],
+      "rol_id": "1505259385688031378",
+      "rol_lider_id": "1505259387000848496",
+      "cat_id": "1505259388535832818"
+    }
+  },
   "admin_channel": "1505031872097423440",
   "solicitudes": {},
   "auth_log_channel": "1504959734011400362",

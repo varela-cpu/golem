@@ -6,7 +6,7 @@ import {
   SlashCommandBuilder,
   TextChannel,
 } from "discord.js";
-import { guardarClan } from "../lib/data.js";
+import { getAuthLogChannel, getMcUsername, guardarClan } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
 import { Command } from "../lib/types.js";
 
@@ -43,6 +43,7 @@ export const crear: Command = {
     const colorInt = parseInt(rawColor, 16);
     const validColor = rawColor.length === 6 && !isNaN(colorInt);
     const finalColorInt = validColor ? colorInt : 0x3498db;
+    const finalColorHex = validColor ? rawColor.toUpperCase() : "3498DB";
 
     const miembrosOpcionales = ["miembro1", "miembro2", "miembro3", "miembro4", "miembro5"]
       .map((key) => interaction.options.getUser(key))
@@ -105,14 +106,22 @@ export const crear: Command = {
       await guild.channels.create({ name: "chat-general", type: 0, parent: categoria.id, permissionOverwrites: overwrites });
       await guild.channels.create({ name: "Voz Clan", type: 2, parent: categoria.id, permissionOverwrites: overwrites });
 
-      guardarClan(
-        nombreClan,
-        liderUser.id,
-        miembrosAgregados.map((m) => m.id),
-        rolClan.id,
-        rolLider.id,
-        categoria.id
-      );
+      guardarClan(nombreClan, liderUser.id, miembrosAgregados.map((m) => m.id), rolClan.id, rolLider.id, categoria.id, finalColorInt, finalColorHex, true);
+
+      const logChannelId = getAuthLogChannel();
+      if (logChannelId) {
+        const logChannel = interaction.client.channels.cache.get(logChannelId) as TextChannel | undefined;
+        if (logChannel) {
+          await logChannel.send(`!c lp creategroup ${nombreClan}`);
+          await logChannel.send(`!c lp group ${nombreClan} meta setprefix "&#${finalColorHex}[${nombreClan}] "`);
+          const liderMc = getMcUsername(liderUser.id) ?? liderUser.username;
+          await logChannel.send(`!c lp user ${liderMc} parent add ${nombreClan}`);
+          for (const m of miembrosAgregados) {
+            const mc = getMcUsername(m.id) ?? m.user.username;
+            await logChannel.send(`!c lp user ${mc} parent add ${nombreClan}`);
+          }
+        }
+      }
 
       logger.info({ guild: guild.id, clan: nombreClan, lider: liderUser.id }, "Clan creado via slash command");
 

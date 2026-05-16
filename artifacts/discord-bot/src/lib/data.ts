@@ -11,6 +11,9 @@ export interface ClanData {
   rol_id: string;
   rol_lider_id: string;
   cat_id: string;
+  colorInt: number;
+  colorHex: string;
+  activated: boolean;
 }
 
 export interface SolicitudData {
@@ -38,6 +41,7 @@ interface DB {
   auth_log_channel: string | null;
   auth_staff_channel: string | null;
   auth_image_url: string | null;
+  mc_usernames: { [userId: string]: string };
   solicitudes: { [id: string]: SolicitudData };
   solicitudes_auth: { [userId: string]: AuthSolicitudData };
 }
@@ -48,7 +52,7 @@ function ensureFile(): void {
   if (!fs.existsSync(DATA_FILE)) {
     fs.writeFileSync(
       DATA_FILE,
-      JSON.stringify({ clanes: {}, admin_channel: null, auth_log_channel: null, auth_staff_channel: null, auth_image_url: null, solicitudes: {}, solicitudes_auth: {} }, null, 2),
+      JSON.stringify({ clanes: {}, admin_channel: null, auth_log_channel: null, auth_staff_channel: null, auth_image_url: null, mc_usernames: {}, solicitudes: {}, solicitudes_auth: {} }, null, 2),
       "utf-8"
     );
   }
@@ -58,8 +62,14 @@ function loadDB(): DB {
   ensureFile();
   const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as DB;
   if (!raw.solicitudes_auth) raw.solicitudes_auth = {};
+  if (!raw.mc_usernames) raw.mc_usernames = {};
   if (raw.auth_staff_channel === undefined) raw.auth_staff_channel = null;
   if (raw.auth_image_url === undefined) raw.auth_image_url = null;
+  for (const clan of Object.values(raw.clanes)) {
+    if (clan.activated === undefined) clan.activated = true;
+    if (clan.colorInt === undefined) clan.colorInt = 0xffffff;
+    if (clan.colorHex === undefined) clan.colorHex = "FFFFFF";
+  }
   return raw;
 }
 
@@ -77,11 +87,33 @@ export function guardarClan(
   miembrosIds: string[],
   rolId: string,
   rolLiderId: string,
-  catId: string
+  catId: string,
+  colorInt = 0xffffff,
+  colorHex = "FFFFFF",
+  activated = true
 ): void {
   const db = loadDB();
-  db.clanes[nombre] = { lider_id: liderId, miembros_ids: miembrosIds, rol_id: rolId, rol_lider_id: rolLiderId, cat_id: catId };
+  db.clanes[nombre] = { lider_id: liderId, miembros_ids: miembrosIds, rol_id: rolId, rol_lider_id: rolLiderId, cat_id: catId, colorInt, colorHex, activated };
   saveDB(db);
+}
+
+export function activarClan(nombre: string, rolId: string, rolLiderId: string, catId: string): void {
+  const db = loadDB();
+  if (db.clanes[nombre]) {
+    db.clanes[nombre].rol_id = rolId;
+    db.clanes[nombre].rol_lider_id = rolLiderId;
+    db.clanes[nombre].cat_id = catId;
+    db.clanes[nombre].activated = true;
+    saveDB(db);
+  }
+}
+
+export function cederLiderazgo(clanNombre: string, nuevoLiderId: string): void {
+  const db = loadDB();
+  if (db.clanes[clanNombre]) {
+    db.clanes[clanNombre].lider_id = nuevoLiderId;
+    saveDB(db);
+  }
 }
 
 export function agregarMiembroAClan(nombre: string, userId: string): void {
@@ -158,6 +190,16 @@ export function getAuthImageUrl(): string | null {
 export function setAuthImageUrl(url: string): void {
   const db = loadDB();
   db.auth_image_url = url;
+  saveDB(db);
+}
+
+export function getMcUsername(userId: string): string | null {
+  return loadDB().mc_usernames[userId] ?? null;
+}
+
+export function setMcUsername(userId: string, mcUsername: string): void {
+  const db = loadDB();
+  db.mc_usernames[userId] = mcUsername;
   saveDB(db);
 }
 
