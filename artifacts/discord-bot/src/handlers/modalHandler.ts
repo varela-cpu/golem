@@ -7,11 +7,13 @@ import {
   TextChannel,
   UserSelectMenuBuilder,
 } from "discord.js";
+
 import {
   clanExiste,
   getAdminChannel,
-  getAuthLogChannel,
+  getAuthStaffChannel,
   guardarSolicitud,
+  guardarSolicitudAuth,
   usuarioEnClan,
 } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
@@ -137,49 +139,54 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
 
     const mcUsername = interaction.fields.getTextInputValue("mc_username").trim();
 
-    const logChannelId = getAuthLogChannel();
-    if (!logChannelId) {
+    const staffChannelId = getAuthStaffChannel();
+    if (!staffChannelId) {
       await interaction.reply({
-        content: "❌ Error: El canal de logs no ha sido configurado. Pide a un admin que use `/comand_chat`.",
+        content: "❌ Error: El canal de staff no ha sido configurado. Pide a un admin que use `/auth-staff`.",
         ephemeral: true,
       });
       return;
     }
 
-    const autenticadoRole = interaction.guild.roles.cache.find((r) => r.name === "Autenticado");
-    if (!autenticadoRole) {
-      await interaction.reply({
-        content: "❌ Error: No se encontró el rol llamado **Autenticado**. Pide a un admin que lo cree.",
-        ephemeral: true,
-      });
+    guardarSolicitudAuth(interaction.user.id, {
+      userId: interaction.user.id,
+      mcUsername,
+      guildId: interaction.guild.id,
+    });
+
+    const staffChannel = interaction.client.channels.cache.get(staffChannelId) as TextChannel | undefined;
+    if (!staffChannel) {
+      await interaction.reply({ content: "❌ No se pudo encontrar el canal de staff.", ephemeral: true });
       return;
     }
 
-    try {
-      const member = await interaction.guild.members.fetch(interaction.user.id);
-      await member.roles.add(autenticadoRole);
-    } catch (err) {
-      logger.error({ err }, "No se pudo asignar el rol Autenticado");
-      await interaction.reply({ content: "❌ No se pudo asignar el rol. Verifica los permisos del bot.", ephemeral: true });
-      return;
-    }
+    const embed = new EmbedBuilder()
+      .setTitle("🔔 Nueva solicitud de autenticación")
+      .setColor(0xe67e22)
+      .addFields(
+        { name: "Usuario Discord", value: `${interaction.user}`, inline: true },
+        { name: "Nombre en Minecraft (Java)", value: `\`${mcUsername}\``, inline: true }
+      )
+      .setTimestamp();
 
-    const logChannel = interaction.client.channels.cache.get(logChannelId) as TextChannel | undefined;
-    if (logChannel) {
-      const logEmbed = new EmbedBuilder()
-        .setTitle("Nueva Autenticación")
-        .setColor(0xe67e22)
-        .addFields(
-          { name: "Usuario Discord", value: `${interaction.user}`, inline: true },
-          { name: "Usuario Minecraft", value: `\`${mcUsername}\``, inline: true }
-        )
-        .setTimestamp();
-      await logChannel.send({ embeds: [logEmbed] });
-    }
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`auth_approve:${interaction.user.id}`)
+        .setLabel("Aceptar")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("✅"),
+      new ButtonBuilder()
+        .setCustomId(`auth_reject:${interaction.user.id}`)
+        .setLabel("Rechazar")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji("❌")
+    );
 
-    logger.info({ userId: interaction.user.id, mcUsername }, "Usuario autenticado");
+    await staffChannel.send({ embeds: [embed], components: [row] });
+
+    logger.info({ userId: interaction.user.id, mcUsername }, "Solicitud de auth enviada a staff");
     await interaction.reply({
-      content: `✅ ¡Perfecto! Te has autenticado como \`${mcUsername}\`. Ya tienes acceso al servidor.`,
+      content: `✅ Tu solicitud fue enviada. Un administrador la revisará pronto y te dará acceso.`,
       ephemeral: true,
     });
     return;

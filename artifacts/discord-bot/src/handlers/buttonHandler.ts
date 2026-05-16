@@ -16,8 +16,11 @@ import {
   clanExiste,
   eliminarClanData,
   eliminarSolicitud,
+  eliminarSolicitudAuth,
   getAdminChannel,
+  getAuthLogChannel,
   getSolicitud,
+  getSolicitudAuth,
   guardarClan,
   guardarSolicitud,
   usuarioEnClan,
@@ -321,15 +324,97 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId("mc_username")
-            .setLabel("Tu nombre en Minecraft")
+            .setLabel("Tu nombre en Minecraft (Java)")
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder("Escribe tu nombre exacto de Java/Bedrock...")
+            .setPlaceholder("Ej: Steve123 (solo Java Edition)")
             .setMinLength(3)
             .setMaxLength(16)
             .setRequired(true)
         )
       );
     await interaction.showModal(modal);
+    return;
+  }
+
+  // ── Auth approve ──────────────────────────────────────────────────────────
+  if (customId.startsWith("auth_approve:")) {
+    const targetUserId = customId.split(":")[1];
+    if (!interaction.guild) return;
+
+    const solicitud = getSolicitudAuth(targetUserId);
+    if (!solicitud) {
+      await interaction.reply({ content: "❌ No se encontró la solicitud (puede que ya haya sido procesada).", ephemeral: true });
+      return;
+    }
+
+    const autenticadoRole = interaction.guild.roles.cache.find((r) => r.name === "Autenticado");
+    if (!autenticadoRole) {
+      await interaction.reply({ content: "❌ No existe el rol **Autenticado** en el servidor.", ephemeral: true });
+      return;
+    }
+
+    try {
+      const member = await interaction.guild.members.fetch(targetUserId);
+      await member.roles.add(autenticadoRole);
+    } catch (err) {
+      logger.error({ err }, "No se pudo asignar rol Autenticado en aprobación");
+      await interaction.reply({ content: "❌ No se pudo asignar el rol. Verifica los permisos del bot.", ephemeral: true });
+      return;
+    }
+
+    const logChannelId = getAuthLogChannel();
+    if (logChannelId) {
+      const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
+      await logChannel?.send(solicitud.mcUsername);
+    }
+
+    eliminarSolicitudAuth(targetUserId);
+    logger.info({ targetUserId, mcUsername: solicitud.mcUsername }, "Auth aprobada");
+
+    await interaction.update({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("✅ Solicitud aprobada")
+          .setColor(0x2ecc71)
+          .addFields(
+            { name: "Usuario Discord", value: `<@${targetUserId}>`, inline: true },
+            { name: "Nombre Minecraft (Java)", value: `\`${solicitud.mcUsername}\``, inline: true },
+            { name: "Aprobado por", value: `${interaction.user}`, inline: true }
+          )
+          .setTimestamp(),
+      ],
+      components: [],
+    });
+    return;
+  }
+
+  // ── Auth reject ───────────────────────────────────────────────────────────
+  if (customId.startsWith("auth_reject:")) {
+    const targetUserId = customId.split(":")[1];
+
+    const solicitud = getSolicitudAuth(targetUserId);
+    if (!solicitud) {
+      await interaction.reply({ content: "❌ No se encontró la solicitud (puede que ya haya sido procesada).", ephemeral: true });
+      return;
+    }
+
+    eliminarSolicitudAuth(targetUserId);
+    logger.info({ targetUserId }, "Auth rechazada");
+
+    await interaction.update({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Solicitud rechazada")
+          .setColor(0xe74c3c)
+          .addFields(
+            { name: "Usuario Discord", value: `<@${targetUserId}>`, inline: true },
+            { name: "Nombre Minecraft (Java)", value: `\`${solicitud.mcUsername}\``, inline: true },
+            { name: "Rechazado por", value: `${interaction.user}`, inline: true }
+          )
+          .setTimestamp(),
+      ],
+      components: [],
+    });
     return;
   }
 

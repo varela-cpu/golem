@@ -8,6 +8,7 @@ import {
   SlashCommandBuilder,
   TextChannel,
 } from "discord.js";
+import { getAuthImageUrl } from "../lib/data.js";
 import { Command } from "../lib/types.js";
 
 export const setup_auth: Command = {
@@ -17,6 +18,8 @@ export const setup_auth: Command = {
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction: ChatInputCommandInteraction) {
+    const imageUrl = getAuthImageUrl();
+
     const embed = new EmbedBuilder()
       .setTitle("🛡️ Obtener verificación")
       .setDescription(
@@ -25,12 +28,13 @@ export const setup_auth: Command = {
           "Aquí podrás compartir con otras personas del servidor en un chat público, " +
           "podrás saber información importante relacionada con dicho servidor.\n\n" +
           "Podrás crear tus propios clanes (con mínimo dos personas).\n\n" +
-          "Por favor introduce tu nombre de usuario en Minecraft aquí, y luego dale al botón de autenticar. " +
+          "Por favor introduce tu nombre de usuario de **Java** en Minecraft, y luego dale al botón de autenticar. " +
           "Lo necesitaremos para agregarte a la whitelist."
       )
       .setColor(0xe67e22)
-      .setImage("https://i.imgur.com/8fS0S6A.png")
-      .setFooter({ text: "Sistema de Seguridad Golem", iconURL: "https://i.imgur.com/vMvX7pT.png" });
+      .setFooter({ text: "Sistema de Seguridad Golem" });
+
+    if (imageUrl) embed.setImage(imageUrl);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()

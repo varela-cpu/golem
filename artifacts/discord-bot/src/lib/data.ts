@@ -22,6 +22,12 @@ export interface SolicitudData {
   guild_id: string;
 }
 
+export interface AuthSolicitudData {
+  userId: string;
+  mcUsername: string;
+  guildId: string;
+}
+
 export interface ClanesStore {
   [nombre: string]: ClanData;
 }
@@ -30,20 +36,31 @@ interface DB {
   clanes: ClanesStore;
   admin_channel: string | null;
   auth_log_channel: string | null;
+  auth_staff_channel: string | null;
+  auth_image_url: string | null;
   solicitudes: { [id: string]: SolicitudData };
+  solicitudes_auth: { [userId: string]: AuthSolicitudData };
 }
 
 function ensureFile(): void {
   const dir = path.dirname(DATA_FILE);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ clanes: {}, admin_channel: null, auth_log_channel: null, solicitudes: {} }, null, 2), "utf-8");
+    fs.writeFileSync(
+      DATA_FILE,
+      JSON.stringify({ clanes: {}, admin_channel: null, auth_log_channel: null, auth_staff_channel: null, auth_image_url: null, solicitudes: {}, solicitudes_auth: {} }, null, 2),
+      "utf-8"
+    );
   }
 }
 
 function loadDB(): DB {
   ensureFile();
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as DB;
+  const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as DB;
+  if (!raw.solicitudes_auth) raw.solicitudes_auth = {};
+  if (raw.auth_staff_channel === undefined) raw.auth_staff_channel = null;
+  if (raw.auth_image_url === undefined) raw.auth_image_url = null;
+  return raw;
 }
 
 function saveDB(db: DB): void {
@@ -121,6 +138,42 @@ export function getAuthLogChannel(): string | null {
 export function setAuthLogChannel(channelId: string): void {
   const db = loadDB();
   db.auth_log_channel = channelId;
+  saveDB(db);
+}
+
+export function getAuthStaffChannel(): string | null {
+  return loadDB().auth_staff_channel ?? null;
+}
+
+export function setAuthStaffChannel(channelId: string): void {
+  const db = loadDB();
+  db.auth_staff_channel = channelId;
+  saveDB(db);
+}
+
+export function getAuthImageUrl(): string | null {
+  return loadDB().auth_image_url ?? null;
+}
+
+export function setAuthImageUrl(url: string): void {
+  const db = loadDB();
+  db.auth_image_url = url;
+  saveDB(db);
+}
+
+export function guardarSolicitudAuth(userId: string, data: AuthSolicitudData): void {
+  const db = loadDB();
+  db.solicitudes_auth[userId] = data;
+  saveDB(db);
+}
+
+export function getSolicitudAuth(userId: string): AuthSolicitudData | null {
+  return loadDB().solicitudes_auth[userId] ?? null;
+}
+
+export function eliminarSolicitudAuth(userId: string): void {
+  const db = loadDB();
+  delete db.solicitudes_auth[userId];
   saveDB(db);
 }
 
