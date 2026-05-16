@@ -46,6 +46,15 @@ export const invitar: Command = {
       return;
     }
 
+    const autenticadoRole = interaction.guild.roles.cache.find((r) => r.name === "Autenticado");
+    if (autenticadoRole) {
+      const targetMember = interaction.guild.members.cache.get(target.id) ?? await interaction.guild.members.fetch(target.id).catch(() => null);
+      if (!targetMember || !targetMember.roles.cache.has(autenticadoRole.id)) {
+        await interaction.reply({ content: `❌ **${target.displayName}** no está autenticado en el servidor. Solo puedes invitar miembros con el rol **Autenticado**.`, ephemeral: true });
+        return;
+      }
+    }
+
     const guildId = interaction.guild.id;
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

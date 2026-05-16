@@ -9,14 +9,24 @@ export async function handleSelect(interaction: AnySelectMenuInteraction): Promi
   // ── Member selection for clan request flow ───────────────────────────────
   if (customId === "select_miembros_req") {
     if (!interaction.isUserSelectMenu()) return;
+    if (!interaction.guild) return;
+
     const selected = [...interaction.users.values()];
+    const autenticadoRole = interaction.guild.roles.cache.find((r) => r.name === "Autenticado");
 
     for (const u of selected) {
       if (u.id === user.id) continue;
       const clanActual = usuarioEnClan(u.id);
       if (clanActual) {
-        await interaction.reply({ content: `❌ **${u.displayName}** ya pertenece al clan **${clanActual}**.`, ephemeral: true });
+        await interaction.reply({ content: `❌ **${u.username}** ya pertenece al clan **${clanActual}**.`, ephemeral: true });
         return;
+      }
+      if (autenticadoRole) {
+        const gm = interaction.guild.members.cache.get(u.id) ?? await interaction.guild.members.fetch(u.id).catch(() => null);
+        if (!gm || !gm.roles.cache.has(autenticadoRole.id)) {
+          await interaction.reply({ content: `❌ **${u.username}** no está autenticado en el servidor. Solo se pueden añadir miembros con el rol **Autenticado**.`, ephemeral: true });
+          return;
+        }
       }
     }
 
