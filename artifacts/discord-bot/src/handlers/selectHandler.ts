@@ -1,9 +1,35 @@
 import { AnySelectMenuInteraction, TextChannel } from "discord.js";
-import { eliminarClanData, getAuthLogChannel } from "../lib/data.js";
+import { eliminarClanData, getAuthLogChannel, usuarioEnClan } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
+import { updatePendingRequest } from "../lib/pending.js";
 
 export async function handleSelect(interaction: AnySelectMenuInteraction): Promise<void> {
-  const { customId } = interaction;
+  const { customId, user } = interaction;
+
+  // ── Member selection for clan request flow ───────────────────────────────
+  if (customId === "select_miembros_req") {
+    if (!interaction.isUserSelectMenu()) return;
+    const selected = [...interaction.users.values()];
+
+    for (const u of selected) {
+      if (u.id === user.id) continue;
+      const clanActual = usuarioEnClan(u.id);
+      if (clanActual) {
+        await interaction.reply({ content: `❌ **${u.displayName}** ya pertenece al clan **${clanActual}**.`, ephemeral: true });
+        return;
+      }
+    }
+
+    const validos = selected.filter((u) => u.id !== user.id);
+    if (validos.length < 1) {
+      await interaction.reply({ content: "❌ No puedes seleccionarte a ti mismo como miembro. Elige a otras personas.", ephemeral: true });
+      return;
+    }
+
+    updatePendingRequest(user.id, { miembros: validos });
+    await interaction.reply({ content: `👥 ${validos.length} miembro(s) seleccionado(s). Ahora haz clic en **Siguiente →**`, ephemeral: true });
+    return;
+  }
 
   // ── Delete clan dropdown ─────────────────────────────────────────────────
   if (customId === "select_borrar_clan") {

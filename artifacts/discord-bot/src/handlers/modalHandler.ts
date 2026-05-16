@@ -16,6 +16,7 @@ import {
   usuarioEnClan,
 } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
+import { clearPendingRequest, getPendingRequest } from "../lib/pending.js";
 
 export async function handleModal(interaction: ModalSubmitInteraction): Promise<void> {
   // ── Approval-flow modal (name + color — creator IS the leader) ────────────
@@ -31,6 +32,13 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
     const clanActual = usuarioEnClan(interaction.user.id);
     if (clanActual) {
       await interaction.reply({ content: `❌ Ya perteneces al clan **${clanActual}**.`, ephemeral: true });
+      return;
+    }
+
+    const req = getPendingRequest(interaction.user.id);
+    const miembros = (req?.miembros ?? []).filter((m) => m.id !== interaction.user.id);
+    if (miembros.length < 1) {
+      await interaction.reply({ content: "❌ Sesión expirada o ningún miembro válido seleccionado. Inicia el proceso de nuevo.", ephemeral: true });
       return;
     }
 
@@ -54,13 +62,15 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
       return;
     }
 
+    clearPendingRequest(interaction.user.id);
+
     const solId = `${Date.now()}_${interaction.user.id}`;
     guardarSolicitud(solId, {
       nombre,
       colorInt: finalColorInt,
       colorHex: finalColorHex,
       lider_id: interaction.user.id,
-      miembros_ids: [],
+      miembros_ids: miembros.map((m) => m.id),
       guild_id: interaction.guildId ?? "",
     });
 

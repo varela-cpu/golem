@@ -5,7 +5,10 @@
       "miembros_ids": [],
       "rol_id": "1505259385688031378",
       "rol_lider_id": "1505259387000848496",
-      "cat_id": "1505259388535832818"
+      "cat_id": "1505259388535832818",
+      "activated": true,
+      "colorInt": 16777215,
+      "colorHex": "FFFFFF"
     }
   },
   "admin_channel": "1505031872097423440",
@@ -13,5 +16,9 @@
   "auth_log_channel": "1504959734011400362",
   "solicitudes_auth": {},
   "auth_staff_channel": "1505031872097423440",
-  "auth_image_url": "https://i.pinimg.com/736x/a5/b3/97/a5b397f2a95d5a058d1a4909caec9877.jpg"
+  "auth_image_url": "https://i.pinimg.com/736x/a5/b3/97/a5b397f2a95d5a058d1a4909caec9877.jpg",
+  "mc_usernames": {
+    "678005323264426007": "Nutria",
+    "1185305050738868349": "Nutria"
+  }
 }

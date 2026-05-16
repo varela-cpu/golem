@@ -9,6 +9,7 @@ import {
   TextChannel,
   TextInputBuilder,
   TextInputStyle,
+  UserSelectMenuBuilder,
 } from "discord.js";
 import {
   activarClan,
@@ -30,16 +31,48 @@ import {
 } from "../lib/data.js";
 
 import { logger } from "../lib/logger.js";
-import { clearPending, getPending } from "../lib/pending.js";
+import { clearPending, clearPendingRequest, getPending, getPendingRequest, setPendingRequest } from "../lib/pending.js";
 
 export async function handleButton(interaction: ButtonInteraction, client: Client): Promise<void> {
   const { customId, user, guild } = interaction;
 
-  // ── "Pedir Creación de Clan" public button — directly opens modal ────────
+  // ── "Pedir Creación de Clan" public button — select members first ─────────
   if (customId === "btn_pedir_clan") {
     const clanActual = usuarioEnClan(user.id);
     if (clanActual) {
       await interaction.reply({ content: `❌ Ya perteneces al clan **${clanActual}**.`, ephemeral: true });
+      return;
+    }
+
+    setPendingRequest(user.id, { lider: null, miembros: [] });
+
+    const miembrosRow = new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(
+      new UserSelectMenuBuilder()
+        .setCustomId("select_miembros_req")
+        .setPlaceholder("👥 Selecciona los miembros del clan (mínimo 1)")
+        .setMinValues(1)
+        .setMaxValues(10)
+    );
+    const btnRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("btn_siguiente_req")
+        .setLabel("Siguiente →")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await interaction.reply({
+      content: "Selecciona los miembros que formarán parte de tu clan (tú serás el líder automáticamente):",
+      components: [miembrosRow, btnRow],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // ── "Siguiente" — open the name/color modal ──────────────────────────────
+  if (customId === "btn_siguiente_req") {
+    const req = getPendingRequest(user.id);
+    if (!req || req.miembros.length < 1) {
+      await interaction.reply({ content: "❌ Debes seleccionar al menos 1 miembro antes de continuar.", ephemeral: true });
       return;
     }
 
@@ -103,21 +136,29 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       }
     }
 
-    try {
-      const lider = await targetGuild.members.fetch(sol.lider_id);
-      await lider.send(
-        `✅ ¡Tu solicitud para crear el clan **${sol.nombre}** ha sido aprobada!\n\n` +
-        `Ahora usa \`/invitar\` para añadir miembros.\n` +
-        `⚠️ Los canales y roles de Discord se crearán cuando el **primer miembro acepte** tu invitación.`
-      );
-    } catch {
-      logger.warn({ userId: sol.lider_id }, "No se pudo enviar DM al líder tras aprobación");
+    // Send DM invitations to selected members (NOT to the leader)
+    for (const mId of sol.miembros_ids) {
+      try {
+        const member = await targetGuild.members.fetch(mId);
+        const inviteRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`aceptar_invitacion:${sol.guild_id}:${sol.nombre}`)
+            .setLabel("Aceptar Invitación")
+            .setStyle(ButtonStyle.Success)
+        );
+        await member.send({
+          content: `¡Has sido invitado al clan **${sol.nombre}** en **${targetGuild.name}**! ¿Aceptas unirte?`,
+          components: [inviteRow],
+        });
+      } catch {
+        logger.warn({ userId: mId }, "No se pudo enviar DM a miembro invitado");
+      }
     }
 
-    logger.info({ clan: sol.nombre, lider: sol.lider_id }, "Clan aprobado — pendiente de activación");
+    logger.info({ clan: sol.nombre, lider: sol.lider_id, miembros: sol.miembros_ids.length }, "Clan aprobado — invitaciones enviadas");
 
     await interaction.editReply({
-      content: `✅ Clan **${sol.nombre}** aprobado. El líder ha sido notificado por DM.`,
+      content: `✅ Clan **${sol.nombre}** aprobado. Se enviaron invitaciones a ${sol.miembros_ids.length} miembro(s).`,
       components: [],
       embeds: [],
     });
