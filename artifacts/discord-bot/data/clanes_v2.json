@@ -1,14 +1,16 @@
 {
   "clanes": {
-    "Los Cracks": {
-      "lider_id": "508321154239299605",
-      "miembros_ids": [],
-      "rol_id": "1505259385688031378",
-      "rol_lider_id": "1505259387000848496",
-      "cat_id": "1505259388535832818",
-      "activated": true,
+    "JOJO": {
+      "lider_id": "678005323264426007",
+      "miembros_ids": [
+        "1185305050738868349"
+      ],
+      "rol_id": "1505348637973286954",
+      "rol_lider_id": "1505348638434529281",
+      "cat_id": "1505348639466455260",
       "colorInt": 16777215,
-      "colorHex": "FFFFFF"
+      "colorHex": "FFFFFF",
+      "activated": true
     }
   },
   "admin_channel": "1505031872097423440",

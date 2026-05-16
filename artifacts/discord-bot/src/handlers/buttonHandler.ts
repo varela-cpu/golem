@@ -127,15 +127,6 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
     guardarClan(sol.nombre, sol.lider_id, [], "", "", "", sol.colorInt, sol.colorHex, false);
     eliminarSolicitud(solId);
 
-    const logChannelId = getAuthLogChannel();
-    if (logChannelId) {
-      const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
-      if (logChannel) {
-        await logChannel.send(`!c lp creategroup ${sol.nombre}`);
-        await logChannel.send(`!c lp group ${sol.nombre} meta setprefix "&#${sol.colorHex}[${sol.nombre}] "`);
-      }
-    }
-
     // Send DM invitations to selected members (NOT to the leader)
     for (const mId of sol.miembros_ids) {
       try {
@@ -278,6 +269,8 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
 
         const liderMc = getMcUsername(clan.lider_id) ?? clan.lider_id;
         if (logChannel) {
+          await logChannel.send(`!c lp creategroup ${clanNombre}`);
+          await logChannel.send(`!c lp group ${clanNombre} meta setprefix "&#${clan.colorHex}[${clanNombre}] "`);
           await logChannel.send(`!c lp user ${liderMc} parent add ${clanNombre}`);
           await logChannel.send(`!c lp user ${memberMc} parent add ${clanNombre}`);
         }

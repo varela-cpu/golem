@@ -1,5 +1,5 @@
 import { AnySelectMenuInteraction, TextChannel } from "discord.js";
-import { eliminarClanData, getAuthLogChannel, usuarioEnClan } from "../lib/data.js";
+import { eliminarClanData, getAuthLogChannel, getMcUsername, usuarioEnClan } from "../lib/data.js";
 import { logger } from "../lib/logger.js";
 import { updatePendingRequest } from "../lib/pending.js";
 
@@ -64,7 +64,14 @@ export async function handleSelect(interaction: AnySelectMenuInteraction): Promi
       const logChannelId = getAuthLogChannel();
       if (logChannelId) {
         const logChannel = interaction.client.channels.cache.get(logChannelId) as TextChannel | undefined;
-        await logChannel?.send(`!c lp deletegroup ${nombreClan}`);
+        if (logChannel) {
+          const todosIds = [clanData.lider_id, ...clanData.miembros_ids];
+          for (const uid of todosIds) {
+            const mc = getMcUsername(uid) ?? uid;
+            await logChannel.send(`!c lp user ${mc} parent remove ${nombreClan}`);
+          }
+          await logChannel.send(`!c lp deletegroup ${nombreClan}`);
+        }
       }
 
       logger.info({ clan: nombreClan }, "Clan eliminado via selector");
