@@ -132,6 +132,23 @@ export function eliminarMiembroDeClan(nombre: string, userId: string): void {
   }
 }
 
+export function renombrarClan(oldName: string, newName: string): void {
+  const db = loadDB();
+  if (!db.clanes[oldName]) return;
+  db.clanes[newName] = db.clanes[oldName];
+  delete db.clanes[oldName];
+  saveDB(db);
+}
+
+export function actualizarColorClan(nombre: string, colorInt: number, colorHex: string): void {
+  const db = loadDB();
+  if (db.clanes[nombre]) {
+    db.clanes[nombre].colorInt = colorInt;
+    db.clanes[nombre].colorHex = colorHex;
+    saveDB(db);
+  }
+}
+
 export function eliminarClanData(nombre: string): ClanData | null {
   const db = loadDB();
   if (!db.clanes[nombre]) return null;

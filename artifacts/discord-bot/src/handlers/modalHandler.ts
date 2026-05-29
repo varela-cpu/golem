@@ -24,6 +24,11 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
     const nombre = interaction.fields.getTextInputValue("nombre_clan").trim();
     const rawColor = interaction.fields.getTextInputValue("color_hex").trim().replace("#", "");
 
+    if (/\s/.test(nombre)) {
+      await interaction.reply({ content: "❌ El nombre del clan no puede contener espacios.", ephemeral: true });
+      return;
+    }
+
     if (clanExiste(nombre)) {
       await interaction.reply({ content: `❌ Ya existe un clan llamado **${nombre}**.`, ephemeral: true });
       return;

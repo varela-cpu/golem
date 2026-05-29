@@ -234,6 +234,7 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
         const overwrites = [
           { id: targetGuild.roles.everyone.id, deny: ["ViewChannel" as const] },
           { id: rolClan.id, allow: ["ViewChannel" as const] },
+          { id: rolLider.id, allow: ["ViewChannel" as const, "ManageChannels" as const, "ManageMessages" as const, "MoveMembers" as const] },
         ];
         const categoria = await targetGuild.channels.create({
           name: clanNombre,
@@ -269,10 +270,11 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
 
         const liderMc = getMcUsername(clan.lider_id) ?? clan.lider_id;
         if (logChannel) {
-          await logChannel.send(`!c lp creategroup ${clanNombre}`);
-          await logChannel.send(`!c lp group ${clanNombre} meta setprefix "&#${clan.colorHex}[${clanNombre}] "`);
-          await logChannel.send(`!c lp user ${liderMc} parent add ${clanNombre}`);
-          await logChannel.send(`!c lp user ${memberMc} parent add ${clanNombre}`);
+          await logChannel.send(`lp creategroup ${clanNombre}`);
+          await logChannel.send(`lp group ${clanNombre} setweight 10`);
+          await logChannel.send(`lp group ${clanNombre} meta setprefix "&#${clan.colorHex}&l[${clanNombre}]&r&f "`);
+          await logChannel.send(`lp user ${liderMc} parent add ${clanNombre}`);
+          await logChannel.send(`lp user ${memberMc} parent add ${clanNombre}`);
         }
 
         try {
@@ -290,7 +292,7 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
         agregarMiembroAClan(clanNombre, user.id);
 
         if (logChannel) {
-          await logChannel.send(`!c lp user ${memberMc} parent add ${clanNombre}`);
+          await logChannel.send(`lp user ${memberMc} parent add ${clanNombre}`);
         }
 
         logger.info({ clan: clanNombre, userId: user.id }, "Miembro aceptó invitación");
@@ -300,6 +302,66 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       logger.error({ err }, "Error al aceptar invitación");
       await interaction.reply({ content: "❌ No se pudo completar la unión al clan.", ephemeral: true });
     }
+    return;
+  }
+
+  // ── Leader confirms clan dissolution ─────────────────────────────────────
+  if (customId.startsWith("confirmar_disolver:")) {
+    const clanNombre = customId.split(":")[1];
+    const clanes = cargarClanes();
+    const clan = clanes[clanNombre];
+
+    if (!clan) {
+      await interaction.reply({ content: "❌ El clan ya no existe.", ephemeral: true });
+      return;
+    }
+    if (clan.lider_id !== user.id) {
+      await interaction.reply({ content: "❌ Solo el líder puede disolver el clan.", ephemeral: true });
+      return;
+    }
+    if (!guild) {
+      await interaction.reply({ content: "❌ No se pudo encontrar el servidor.", ephemeral: true });
+      return;
+    }
+
+    await interaction.deferUpdate();
+
+    if (clan.activated) {
+      const cat = guild.channels.cache.get(clan.cat_id);
+      if (cat && cat.type === 4) {
+        const hijos = guild.channels.cache.filter((c) => "parentId" in c && c.parentId === cat.id);
+        for (const [, canal] of hijos) await canal.delete(`Clan disuelto: ${clanNombre}`).catch(() => null);
+        await cat.delete(`Clan disuelto: ${clanNombre}`).catch(() => null);
+      }
+      const rolClan = guild.roles.cache.get(clan.rol_id);
+      const rolLider = guild.roles.cache.get(clan.rol_lider_id);
+      if (rolClan) await rolClan.delete().catch(() => null);
+      if (rolLider) await rolLider.delete().catch(() => null);
+    }
+
+    const logChannelId = getAuthLogChannel();
+    if (logChannelId) {
+      const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
+      if (logChannel) {
+        const todosIds = [clan.lider_id, ...clan.miembros_ids];
+        for (const uid of todosIds) {
+          const mc = getMcUsername(uid) ?? uid;
+          await logChannel.send(`!c lp user ${mc} parent remove ${clanNombre}`);
+        }
+        await logChannel.send(`!c lp deletegroup ${clanNombre}`);
+      }
+    }
+
+    eliminarClanData(clanNombre);
+
+    logger.info({ clan: clanNombre, lider: user.id }, "Clan disuelto por el líder");
+    await interaction.editReply({ content: `✅ El clan **${clanNombre}** ha sido disuelto.`, components: [], embeds: [] });
+    return;
+  }
+
+  // ── Leader cancels clan dissolution ──────────────────────────────────────
+  if (customId === "cancelar_disolver") {
+    await interaction.update({ content: "❎ Disolución cancelada.", components: [], embeds: [] });
     return;
   }
 
@@ -351,13 +413,14 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
       if (logChannelId) {
         const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
         if (logChannel) {
-          await logChannel.send(`!c lp creategroup ${pending.nombre}`);
-          await logChannel.send(`!c lp group ${pending.nombre} meta setprefix "&#${pending.colorHex}[${pending.nombre}] "`);
+          await logChannel.send(`lp creategroup ${pending.nombre}`);
+          await logChannel.send(`lp group ${pending.nombre} setweight 10`);
+          await logChannel.send(`lp group ${pending.nombre} meta setprefix "&#${pending.colorHex}&l[${pending.nombre}]&r&f  "`);
           const liderMc = getMcUsername(liderId) ?? liderId;
-          await logChannel.send(`!c lp user ${liderMc} parent add ${pending.nombre}`);
+          await logChannel.send(`lp user ${liderMc} parent add ${pending.nombre}`);
           for (const u of pending.miembros) {
             const mc = getMcUsername(u.id) ?? u.username;
-            await logChannel.send(`!c lp user ${mc} parent add ${pending.nombre}`);
+            await logChannel.send(`lp user ${mc} parent add ${pending.nombre}`);
           }
         }
       }
@@ -433,7 +496,7 @@ export async function handleButton(interaction: ButtonInteraction, client: Clien
     const logChannelId = getAuthLogChannel();
     if (logChannelId) {
       const logChannel = client.channels.cache.get(logChannelId) as TextChannel | undefined;
-      await logChannel?.send(`!c whitelist add ${solicitud.mcUsername}`);
+      await logChannel?.send(`whitelist add ${solicitud.mcUsername}`);
     }
 
     eliminarSolicitudAuth(targetUserId);

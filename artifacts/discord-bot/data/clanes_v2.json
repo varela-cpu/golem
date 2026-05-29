@@ -1,18 +1,5 @@
 {
-  "clanes": {
-    "JOJO": {
-      "lider_id": "678005323264426007",
-      "miembros_ids": [
-        "1185305050738868349"
-      ],
-      "rol_id": "1505350295494983762",
-      "rol_lider_id": "1505350296270798938",
-      "cat_id": "1505350297172709386",
-      "colorInt": 16777215,
-      "colorHex": "FFFFFF",
-      "activated": true
-    }
-  },
+  "clanes": {},
   "admin_channel": "1505031872097423440",
   "solicitudes": {},
   "auth_log_channel": "1504959734011400362",
@@ -20,7 +7,8 @@
   "auth_staff_channel": "1505031872097423440",
   "auth_image_url": "https://i.pinimg.com/736x/a5/b3/97/a5b397f2a95d5a058d1a4909caec9877.jpg",
   "mc_usernames": {
-    "678005323264426007": "Nutria",
-    "1185305050738868349": "Nutria"
+    "678005323264426007": "Nutria_gamer",
+    "1185305050738868349": "Nutria",
+    "508321154239299605": "KoreZ"
   }
 }

@@ -78,9 +78,9 @@ export async function handleSelect(interaction: AnySelectMenuInteraction): Promi
           const todosIds = [clanData.lider_id, ...clanData.miembros_ids];
           for (const uid of todosIds) {
             const mc = getMcUsername(uid) ?? uid;
-            await logChannel.send(`!c lp user ${mc} parent remove ${nombreClan}`);
+            await logChannel.send(`lp user ${mc} parent remove ${nombreClan}`);
           }
-          await logChannel.send(`!c lp deletegroup ${nombreClan}`);
+          await logChannel.send(`lp deletegroup ${nombreClan}`);
         }
       }
 
