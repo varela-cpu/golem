@@ -8,7 +8,7 @@ await esbuild.build({
   format: "esm",
   outfile: "dist/index.mjs",
   sourcemap: true,
-  external: [],
+  external: ["discord.js", "pino", "pino-pretty"],
 });
 
 console.log("Build complete");
